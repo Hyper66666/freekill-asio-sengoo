@@ -1,0 +1,28 @@
+def is_supported_client_version(major: i64, minor: i64, patch: i64) -> bool
+requires major >= 0 && minor >= 0 && patch >= 0
+{
+    let lower_ok = major > 0 || (major == 0 && (minor > 5 || (minor == 5 && patch >= 19)));
+    let upper_ok = major < 0 || (major == 0 && minor < 6);
+    lower_ok && upper_ok
+}
+
+def should_reject_md5(server_md5_matches: bool) -> bool
+{
+    !server_md5_matches
+}
+
+def should_reject_banned_uuid(uuid_banned: bool) -> bool
+{
+    uuid_banned
+}
+
+def can_register_on_device(existing_uuid_count: i64, max_players_per_device: i64) -> bool
+requires existing_uuid_count >= 0 && max_players_per_device >= 0
+{
+    existing_uuid_count < max_players_per_device
+}
+
+def is_password_hash_match(stored_hash_matches: bool) -> bool
+{
+    stored_hash_matches
+}
