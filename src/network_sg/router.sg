@@ -1,0 +1,27 @@
+def is_request_type(packet_type: i64) -> bool {
+    (packet_type & 0x100) != 0
+}
+
+def is_reply_type(packet_type: i64) -> bool {
+    (packet_type & 0x200) != 0
+}
+
+def is_notification_type(packet_type: i64) -> bool {
+    (packet_type & 0x400) != 0
+}
+
+def build_notification_type(compressed: bool, from_server: bool, to_client: bool) -> i64
+ensures result >= 0
+{
+    let packet_type = 0x400;
+    if compressed {
+        packet_type = packet_type | 0x1000;
+    }
+    if from_server {
+        packet_type = packet_type | 0x020;
+    }
+    if to_client {
+        packet_type = packet_type | 0x001;
+    }
+    packet_type
+}
