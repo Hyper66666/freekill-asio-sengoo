@@ -1,0 +1,44 @@
+struct ServerConfig {
+    capacity: i64,
+    room_count_per_thread: i64,
+    max_players_per_device: i64,
+}
+
+def default_server_config() -> ServerConfig
+ensures result.capacity >= 1 && result.room_count_per_thread >= 1 && result.max_players_per_device >= 1
+{
+    ServerConfig {
+        capacity: 100,
+        room_count_per_thread: 2000,
+        max_players_per_device: 1000,
+    }
+}
+
+def normalize_cli_port(raw_port: i64, fallback_port: i64) -> i64
+requires fallback_port >= 1024 && fallback_port <= 65535
+ensures result >= 1024 && result <= 65535
+{
+    if raw_port >= 1024 && raw_port <= 65535 {
+        raw_port
+    } else {
+        fallback_port
+    }
+}
+
+def next_heartbeat_ttl(current_ttl: i64) -> i64
+requires current_ttl >= 0
+ensures result >= 0
+{
+    if current_ttl == 0 {
+        0
+    } else {
+        current_ttl - 1
+    }
+}
+
+def compute_uptime_ms(start_ms: i64, now_ms: i64) -> i64
+requires now_ms >= start_ms
+ensures result >= 0
+{
+    now_ms - start_ms
+}
