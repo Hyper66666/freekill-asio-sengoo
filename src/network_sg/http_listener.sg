@@ -1,0 +1,28 @@
+def classify_http_request(method_code: i64, route_code: i64, has_upgrade: bool) -> i64
+requires method_code >= 0 && route_code >= 0
+ensures result == 200 || result == 404 || result == 405 || result == 426
+{
+    if has_upgrade {
+        if route_code == 2 {
+            200
+        } else {
+            426
+        }
+    } else {
+        if route_code == 0 {
+            404
+        } else {
+            if method_code == 1 || method_code == 2 {
+                200
+            } else {
+                405
+            }
+        }
+    }
+}
+
+def should_close_after_response(keep_alive: bool) -> bool
+ensures result == true
+{
+    true
+}
