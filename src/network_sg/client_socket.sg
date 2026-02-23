@@ -1,0 +1,14 @@
+def is_valid_packet_shape(item_len: i64, command_size: i64, payload_size: i64) -> bool
+requires item_len >= 0 && command_size >= 0 && payload_size >= 0
+{
+    let len_ok = item_len == 4 || item_len == 6;
+    let command_ok = command_size <= 2048;
+    let payload_ok = payload_size <= 32768;
+    len_ok && command_ok && payload_ok
+}
+
+def should_drop_packet(item_len: i64, command_size: i64, payload_size: i64) -> bool
+requires item_len >= 0 && command_size >= 0 && payload_size >= 0
+{
+    !is_valid_packet_shape(item_len, command_size, payload_size)
+}
