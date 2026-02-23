@@ -1,0 +1,27 @@
+def can_emit_signal(lua_alive: bool) -> bool
+{
+    lua_alive
+}
+
+def is_thread_full(capacity: i64, ref_count: i64) -> bool
+requires capacity >= 0 && ref_count >= 0
+{
+    ref_count >= capacity
+}
+
+def is_thread_outdated(thread_md5_matches_server: bool) -> bool
+{
+    !thread_md5_matches_server
+}
+
+def should_remove_thread_after_decrease(ref_count_after_decrease: i64, thread_outdated: bool) -> bool
+{
+    ref_count_after_decrease <= 0 && thread_outdated
+}
+
+def next_thread_id(current_next_thread_id: i64) -> i64
+requires current_next_thread_id >= 0
+ensures result > current_next_thread_id
+{
+    current_next_thread_id + 1
+}
