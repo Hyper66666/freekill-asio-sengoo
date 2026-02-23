@@ -1,0 +1,57 @@
+def should_return_when_rpc_process_dead(process_alive: bool) -> bool
+{
+    !process_alive
+}
+
+def rpc_error_map_size(packet_id: i64) -> i64
+ensures result == 2 || result == 3
+{
+    if packet_id < 0 {
+        2
+    } else {
+        3
+    }
+}
+
+def should_match_waited_response(
+    wait_for_response: bool,
+    packet_id: i64,
+    expected_id: i64,
+    method_is_empty: bool,
+    error_code: i64,
+) -> bool
+{
+    wait_for_response
+        && packet_id == expected_id
+        && method_is_empty
+        && error_code == 0
+}
+
+def should_match_waited_notification(
+    wait_for_notification: bool,
+    packet_id: i64,
+    method_matches: bool,
+) -> bool
+{
+    wait_for_notification && packet_id == -1 && method_matches
+}
+
+def should_abort_wait_on_rpc_error(error_code: i64) -> bool
+{
+    error_code != 0
+}
+
+def should_send_rpc_error(error_code: i64) -> bool
+{
+    error_code < 0
+}
+
+def should_send_rpc_success_response(error_code: i64, response_id: i64) -> bool
+{
+    error_code >= 0 && response_id > 0
+}
+
+def should_throw_unknown_rpc_response_type(error_code: i64, response_id: i64) -> bool
+{
+    error_code >= 0 && response_id <= 0
+}
