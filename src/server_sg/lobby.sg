@@ -1,0 +1,30 @@
+def can_create_room_request(name_valid: bool, capacity: i64, timeout: i64) -> bool
+requires capacity >= 0 && timeout >= 0
+{
+    name_valid && capacity > 0 && timeout > 0
+}
+
+def can_enter_room(room_exists: bool, room_outdated: bool, password_empty: bool, password_match: bool) -> bool
+{
+    if !room_exists || room_outdated {
+        false
+    } else {
+        password_empty || password_match
+    }
+}
+
+def should_remove_lobby_player(is_robot: bool) -> bool
+{
+    is_robot
+}
+
+def should_list_room_first(room_full: bool) -> bool
+{
+    !room_full
+}
+
+def can_dispatch_lobby_task(task_payload_is_array: bool, task_array_len: i64) -> bool
+requires task_array_len >= 0
+{
+    task_payload_is_array && task_array_len == 2
+}
