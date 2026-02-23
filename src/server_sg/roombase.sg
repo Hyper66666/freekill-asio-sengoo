@@ -1,0 +1,46 @@
+def should_dispatch_chat_payload(payload_is_object: bool) -> bool
+{
+    payload_is_object
+}
+
+def should_drop_chat_for_policy(ban_word_allowed: bool, mute_type: i64) -> bool
+{
+    !ban_word_allowed || mute_type == 1
+}
+
+def capped_chat_message_length(message_length: i64) -> i64
+requires message_length >= 0
+ensures result >= 0 && result <= 300
+{
+    if message_length > 300 {
+        300
+    } else {
+        message_length
+    }
+}
+
+def is_lobby_chat_type(chat_type: i64) -> bool
+{
+    chat_type == 1
+}
+
+def can_decode_global_save_key(decoded_bytes: i64) -> bool
+requires decoded_bytes >= 0
+{
+    decoded_bytes > 0
+}
+
+def can_schedule_global_save(key_is_sql_safe: bool) -> bool
+{
+    key_is_sql_safe
+}
+
+def can_return_global_save_json(
+    has_row: bool,
+    has_data_field: bool,
+    is_null_marker: bool,
+    starts_with_json_container: bool,
+) -> bool
+{
+    has_row && has_data_field && !is_null_marker && starts_with_json_container
+}
