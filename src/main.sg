@@ -1,3 +1,41 @@
+def default_server_port() -> i64
+ensures result == 9527
+{
+    9527
+}
+
+def is_valid_listen_port(port: i64) -> bool
+{
+    port >= 1024 && port <= 65535
+}
+
+def normalized_listen_port(candidate_port: i64, random_fallback_port: i64) -> i64
+requires random_fallback_port >= 1024 && random_fallback_port <= 65535
+ensures result >= 1024 && result <= 65535
+{
+    if is_valid_listen_port(candidate_port) {
+        candidate_port
+    } else {
+        random_fallback_port
+    }
+}
+
+def should_exit_after_parse_option(parse_opt_ok: bool) -> bool
+{
+    !parse_opt_ok
+}
+
+def should_redisplay_shell_line(shell_alive: bool, line_done: bool) -> bool
+{
+    shell_alive && !line_done
+}
+
+def should_destroy_runtime_after_loop() -> bool
+ensures result == true
+{
+    true
+}
+
 def milestone_phase() -> i64
 ensures result == 1
 {
