@@ -1,0 +1,27 @@
+def next_task_id(current_next_id: i64) -> i64
+requires current_next_id <= -1
+ensures result <= -1
+{
+    current_next_id - 1
+}
+
+def should_recycle_task_id(current_next_id: i64) -> bool
+{
+    current_next_id < -10000000
+}
+
+def should_remove_task_when_ref_zero(lua_ref_count: i64) -> bool
+{
+    lua_ref_count == 0
+}
+
+def can_bind_expected_reply_id(reply_id: i64) -> bool
+{
+    reply_id >= 0
+}
+
+def should_abort_on_destruct() -> bool
+ensures result == true
+{
+    true
+}
