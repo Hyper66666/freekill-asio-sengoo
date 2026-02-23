@@ -1,0 +1,23 @@
+def can_disable_pack(is_core_pack: bool) -> bool
+{
+    !is_core_pack
+}
+
+def should_abort_update(workspace_status_code: i64) -> bool
+requires workspace_status_code >= 0
+{
+    workspace_status_code != 0
+}
+
+def next_enabled_pack_count(total_pack_count: i64, disabled_pack_count: i64) -> i64
+requires total_pack_count >= 0 && disabled_pack_count >= 0 && disabled_pack_count <= total_pack_count
+ensures result >= 0 && result <= total_pack_count
+{
+    total_pack_count - disabled_pack_count
+}
+
+def should_refresh_summary(enabled_pack_count: i64) -> bool
+requires enabled_pack_count >= 0
+{
+    enabled_pack_count > 0
+}
