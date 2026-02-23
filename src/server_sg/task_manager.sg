@@ -1,0 +1,28 @@
+def can_attach_task_to_user(task_exists: bool, conn_id: i64) -> bool
+requires conn_id >= 0
+{
+    task_exists && conn_id > 0
+}
+
+def should_reject_task_rebind(old_conn_id: i64, new_conn_id: i64) -> bool
+requires old_conn_id >= 0 && new_conn_id >= 0
+{
+    old_conn_id > 0 && old_conn_id != new_conn_id
+}
+
+def should_track_request_id(req_id: i64) -> bool
+requires req_id >= 0
+{
+    req_id > 0
+}
+
+def should_remove_user_task_bucket(task_count_after_remove: i64) -> bool
+requires task_count_after_remove >= 0
+{
+    task_count_after_remove == 0
+}
+
+def can_lookup_task_by_request_id(mapping_exists: bool, task_exists: bool) -> bool
+{
+    mapping_exists && task_exists
+}
