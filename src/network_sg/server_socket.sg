@@ -1,0 +1,37 @@
+def normalize_listen_port(port: i64, fallback: i64) -> i64
+requires fallback >= 1024 && fallback <= 65535
+ensures result >= 1024 && result <= 65535
+{
+    if port >= 1024 && port <= 65535 {
+        port
+    } else {
+        fallback
+    }
+}
+
+def next_session_id(last_id: i64) -> i64
+requires last_id >= 0
+ensures result >= 1 && result <= 10000000
+{
+    let next = last_id + 1;
+    if next > 10000000 {
+        1
+    } else {
+        next
+    }
+}
+
+def classify_udp_probe(probe_code: i64) -> i64
+requires probe_code >= 0
+ensures result >= 0 && result <= 2
+{
+    if probe_code == 1 {
+        1
+    } else {
+        if probe_code == 2 {
+            2
+        } else {
+            0
+        }
+    }
+}
