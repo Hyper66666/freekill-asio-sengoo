@@ -1,0 +1,38 @@
+def is_player_online_state(socket_attached: bool) -> bool
+{
+    socket_attached
+}
+
+def should_mark_runned_on_disconnect(inside_game: bool, is_died: bool) -> bool
+{
+    inside_game && !is_died
+}
+
+def next_ttl_after_notification(is_heartbeat: bool, current_ttl: i64, max_ttl: i64) -> i64
+requires current_ttl >= 0 && max_ttl >= 0
+ensures result >= 0
+{
+    if is_heartbeat {
+        max_ttl
+    } else {
+        current_ttl
+    }
+}
+
+def should_use_null_notify_payload(data_empty: bool) -> bool
+{
+    data_empty
+}
+
+def next_conn_id(current_next_conn_id: i64) -> i64
+requires current_next_conn_id >= 0
+ensures result >= 0
+{
+    let threshold = 2147483392;
+    let candidate = current_next_conn_id + 1;
+    if candidate >= threshold {
+        1000
+    } else {
+        candidate
+    }
+}
