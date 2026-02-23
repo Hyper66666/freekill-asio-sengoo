@@ -1,0 +1,59 @@
+def missing_file_md5_placeholder_length() -> i64
+ensures result == 32
+{
+    32
+}
+
+def should_skip_cr_in_crlf(is_crlf_pair: bool) -> bool
+{
+    is_crlf_pair
+}
+
+def should_skip_package_directory(
+    has_disabled_suffix: bool,
+    is_disabled_pack: bool,
+    is_builtin_pack: bool,
+) -> bool
+{
+    has_disabled_suffix || is_disabled_pack || is_builtin_pack
+}
+
+def qcompress_header_size() -> i64
+ensures result == 4
+{
+    4
+}
+
+def should_return_empty_for_quncompress(input_size: i64, expected_size: i64) -> bool
+requires input_size >= 0 && expected_size >= 0
+{
+    input_size < 4 || expected_size == 0
+}
+
+def is_zlib_ok(zlib_rc: i64) -> bool
+{
+    zlib_rc == 0
+}
+
+def is_uncompress_size_match(decoded_size: i64, expected_size: i64) -> bool
+requires decoded_size >= 0 && expected_size >= 0
+{
+    decoded_size == expected_size
+}
+
+def shell_color_code(color_id: i64) -> i64
+requires color_id >= 0 && color_id <= 6
+ensures result >= 30 && result <= 36
+{
+    30 + color_id
+}
+
+def shell_style_flag(text_type_id: i64) -> i64
+ensures result == 0 || result == 1
+{
+    if text_type_id == 1 {
+        1
+    } else {
+        0
+    }
+}
