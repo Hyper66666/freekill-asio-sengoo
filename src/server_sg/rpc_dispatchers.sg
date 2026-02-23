@@ -1,0 +1,45 @@
+def is_rpc_signature_valid(param_count_matches: bool, param_types_match: bool) -> bool
+{
+    param_count_matches && param_types_match
+}
+
+def should_reject_non_positive_delay(delay_ms: i64) -> bool
+{
+    delay_ms <= 0
+}
+
+def should_return_not_found(entity_exists: bool) -> bool
+{
+    !entity_exists
+}
+
+def should_short_circuit_when_owner_missing(owner_exists: bool) -> bool
+{
+    !owner_exists
+}
+
+def should_emit_async_wakeup(async_scheduled: bool, thread_exists: bool) -> bool
+{
+    async_scheduled && thread_exists
+}
+
+def should_return_async_ack(async_scheduled: bool) -> bool
+{
+    async_scheduled
+}
+
+def can_serialize_player_snapshot(player_exists: bool) -> bool
+{
+    player_exists
+}
+
+def can_serialize_room_snapshot(room_id: i64, room_exists: bool) -> bool
+{
+    room_id > 0 && room_exists
+}
+
+def rpc_server_method_catalog_size() -> i64
+ensures result == 39
+{
+    39
+}
