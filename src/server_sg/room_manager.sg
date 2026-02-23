@@ -1,0 +1,36 @@
+def can_create_room(name_passes_ban_check: bool, creator_online: bool) -> bool
+{
+    name_passes_ban_check && creator_online
+}
+
+def can_join_room(current_players: i64, capacity: i64, room_started: bool) -> bool
+requires current_players >= 0 && capacity >= 0
+{
+    if room_started {
+        false
+    } else {
+        current_players < capacity
+    }
+}
+
+def should_remove_room(player_count: i64, online_human_count: i64, lua_ref_count: i64) -> bool
+requires player_count >= 0 && online_human_count >= 0 && lua_ref_count >= 0
+{
+    let abandoned = player_count == 0 || online_human_count == 0;
+    abandoned && lua_ref_count == 0
+}
+
+def next_room_owner_conn_id(current_owner_conn_id: i64, candidate_conn_id: i64, candidate_online: bool) -> i64
+requires current_owner_conn_id >= 0 && candidate_conn_id >= 0
+ensures result >= 0
+{
+    if current_owner_conn_id > 0 {
+        current_owner_conn_id
+    } else {
+        if candidate_online {
+            candidate_conn_id
+        } else {
+            0
+        }
+    }
+}
