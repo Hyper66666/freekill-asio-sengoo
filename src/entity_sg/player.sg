@@ -1,0 +1,36 @@
+def normalize_player_state(state_code: i64) -> i64
+ensures result >= 0 && result <= 6
+{
+    if state_code >= 0 && state_code <= 6 {
+        state_code
+    } else {
+        0
+    }
+}
+
+def state_code_to_wire(state_code: i64) -> i64
+requires state_code >= 0 && state_code <= 6
+ensures result >= 0 && result <= 6
+{
+    state_code
+}
+
+def next_total_game_time(current_time: i64, add_time: i64) -> i64
+requires current_time >= 0 && add_time >= 0
+ensures result >= current_time
+{
+    current_time + add_time
+}
+
+def can_player_be_ready(state_code: i64, is_died: bool) -> bool
+requires state_code >= 0 && state_code <= 6
+{
+    let active_state = state_code == 1 || state_code == 2 || state_code == 3;
+    active_state && !is_died
+}
+
+def is_valid_game_data(total_games: i64, win_count: i64, run_count: i64) -> bool
+requires total_games >= 0 && win_count >= 0 && run_count >= 0
+{
+    win_count <= total_games && run_count <= total_games
+}
