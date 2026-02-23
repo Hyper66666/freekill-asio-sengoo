@@ -1,0 +1,66 @@
+def should_stop_shell(input_is_null: bool, starts_with_quit: bool) -> bool
+{
+    input_is_null || starts_with_quit
+}
+
+def should_crash_shell(starts_with_crash: bool) -> bool
+{
+    starts_with_crash
+}
+
+def can_dispatch_shell_command(token_count: i64) -> bool
+requires token_count >= 0
+{
+    token_count > 0
+}
+
+def should_warn_unknown_shell_command(command_has_handler: bool) -> bool
+{
+    !command_has_handler
+}
+
+def has_valid_temp_duration(value: i64, unit_kind: i64) -> bool
+requires value >= 0
+{
+    unit_kind >= 0 && unit_kind <= 3
+}
+
+def temp_duration_seconds(value: i64, unit_kind: i64) -> i64
+requires value >= 0 && unit_kind >= 0 && unit_kind <= 3
+ensures result >= 0
+{
+    if unit_kind == 0 {
+        value * 60
+    } else if unit_kind == 1 {
+        value * 3600
+    } else if unit_kind == 2 {
+        value * 86400
+    } else {
+        value * 2592000
+    }
+}
+
+def completion_provider_id(
+    command_arg_count: i64,
+    is_install_command: bool,
+    is_package_command: bool,
+    is_ban_like_command: bool,
+    is_unban_like_command: bool,
+) -> i64
+requires command_arg_count >= 0
+ensures result >= 0 && result <= 4
+{
+    if command_arg_count > 2 {
+        0
+    } else if is_install_command {
+        1
+    } else if is_package_command {
+        2
+    } else if is_ban_like_command {
+        3
+    } else if is_unban_like_command {
+        4
+    } else {
+        0
+    }
+}
