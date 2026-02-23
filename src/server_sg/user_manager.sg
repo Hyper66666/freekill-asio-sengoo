@@ -1,0 +1,41 @@
+def can_accept_new_connection(
+    ip_banned: bool,
+    uuid_banned: bool,
+    temp_banned: bool,
+    online_count: i64,
+    capacity: i64
+) -> bool
+requires online_count >= 0 && capacity >= 0
+{
+    let not_banned = !ip_banned && !uuid_banned && !temp_banned;
+    let not_full = online_count < capacity;
+    not_banned && not_full
+}
+
+def should_broadcast_login_message(online_count: i64) -> bool
+requires online_count >= 0
+{
+    online_count <= 10
+}
+
+def is_robot_player_id(player_id: i64) -> bool
+{
+    player_id < 0
+}
+
+def can_track_online_player(player_id: i64) -> bool
+{
+    player_id > 0
+}
+
+def next_robot_id(current_next_robot_id: i64) -> i64
+ensures result <= -1
+{
+    let lower_bound = -2147483393;
+    let candidate = current_next_robot_id - 1;
+    if candidate < lower_bound {
+        -2
+    } else {
+        candidate
+    }
+}
