@@ -1,0 +1,54 @@
+def is_notification_request(request_id: i64) -> bool
+{
+    request_id < 0
+}
+
+def should_allocate_request_id(requested_id: i64) -> bool
+{
+    requested_id == -1
+}
+
+def next_request_id_counter(current_request_id: i64) -> i64
+requires current_request_id >= 1 && current_request_id <= 10000000
+ensures result >= 1 && result <= 10000000
+{
+    if current_request_id >= 10000000 {
+        1
+    } else {
+        current_request_id + 1
+    }
+}
+
+def notification_param_count(param1_present: bool, param2_present: bool, param3_present: bool) -> i64
+ensures result >= 0 && result <= 3
+{
+    if !param1_present {
+        0
+    } else if !param2_present {
+        1
+    } else if !param3_present {
+        2
+    } else {
+        3
+    }
+}
+
+def should_copy_error_response_id(error_code: i64, request_id: i64) -> bool
+{
+    request_id >= 0 && error_code != -32700 && error_code != -32600
+}
+
+def should_reject_empty_method(method_is_empty: bool) -> bool
+{
+    method_is_empty
+}
+
+def should_report_method_not_found(method_exists: bool) -> bool
+{
+    !method_exists
+}
+
+def should_convert_handler_failure_to_invalid_params(handler_success: bool) -> bool
+{
+    !handler_success
+}
