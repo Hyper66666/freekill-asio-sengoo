@@ -1,0 +1,31 @@
+def is_sql_fragment_safe(has_meta_chars: bool, has_comment_tokens: bool) -> bool
+{
+    !has_meta_chars && !has_comment_tokens
+}
+
+def sqlite_rc_is_ok(sqlite_rc: i64) -> bool
+{
+    sqlite_rc == 0
+}
+
+def cbor_bool_marker(value: bool) -> i64
+ensures result == 0xF5 || result == 0xF4
+{
+    if value {
+        0xF5
+    } else {
+        0xF4
+    }
+}
+
+def cbor_array_major_tag(item_count: i64) -> i64
+requires item_count >= 0 && item_count <= 23
+ensures result >= 0x80 && result <= 0x97
+{
+    0x80 + item_count
+}
+
+def use_null_placeholder(is_null_value: bool) -> bool
+{
+    is_null_value
+}
