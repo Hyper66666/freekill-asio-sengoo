@@ -1,0 +1,12 @@
+build/
+target/
+*.log
+*.sgreflect.json
+*.ll
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+
