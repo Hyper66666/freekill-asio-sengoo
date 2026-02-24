@@ -1,0 +1,54 @@
+def can_complete_lobby_enter_flow(can_enter_room: bool, can_join_room: bool) -> bool
+{
+    can_enter_room && can_join_room
+}
+
+def can_complete_room_start_flow(
+    can_create_room: bool,
+    can_join_room: bool,
+    can_start_room: bool,
+) -> bool
+{
+    can_create_room && can_join_room && can_start_room
+}
+
+def should_enqueue_task_reply_flow(
+    can_attach_task: bool,
+    should_track_request_id: bool,
+    can_lookup_request_mapping: bool,
+) -> bool
+{
+    can_attach_task && should_track_request_id && can_lookup_request_mapping
+}
+
+def should_recycle_abandoned_room_flow(
+    should_mark_abandoned: bool,
+    should_remove_room: bool,
+) -> bool
+{
+    should_mark_abandoned && should_remove_room
+}
+
+def can_add_robot_flow(can_add_robot: bool, room_outdated: bool) -> bool
+{
+    can_add_robot && !room_outdated
+}
+
+def should_emit_ready_state_change(room_started: bool, state_code: i64) -> bool
+{
+    room_started && (state_code == 1 || state_code == 2)
+}
+
+def can_dispatch_lobby_task_flow(
+    can_dispatch_lobby_task: bool,
+    can_attach_task: bool,
+) -> bool
+{
+    can_dispatch_lobby_task && can_attach_task
+}
+
+def can_keep_room_alive(player_count: i64, online_socket_count: i64) -> bool
+requires player_count >= 0 && online_socket_count >= 0
+{
+    player_count > 0 && online_socket_count > 0
+}
