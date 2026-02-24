@@ -1,0 +1,71 @@
+def compressed_flag() -> i64
+ensures result == 0x1000
+{
+    0x1000
+}
+
+def type_request_flag() -> i64
+ensures result == 0x100
+{
+    0x100
+}
+
+def type_reply_flag() -> i64
+ensures result == 0x200
+{
+    0x200
+}
+
+def type_notification_flag() -> i64
+ensures result == 0x400
+{
+    0x400
+}
+
+def src_client_flag() -> i64
+ensures result == 0x010
+{
+    0x010
+}
+
+def src_server_flag() -> i64
+ensures result == 0x020
+{
+    0x020
+}
+
+def src_lobby_flag() -> i64
+ensures result == 0x040
+{
+    0x040
+}
+
+def dest_client_flag() -> i64
+ensures result == 0x001
+{
+    0x001
+}
+
+def dest_server_flag() -> i64
+ensures result == 0x002
+{
+    0x002
+}
+
+def dest_lobby_flag() -> i64
+ensures result == 0x004
+{
+    0x004
+}
+
+def setup_client_to_server_notification_type() -> i64
+ensures result == 1042
+{
+    type_notification_flag() + src_client_flag() + dest_server_flag()
+}
+
+def setup_server_to_client_notification_type() -> i64
+ensures result == 1057
+{
+    type_notification_flag() + src_server_flag() + dest_client_flag()
+}
