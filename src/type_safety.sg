@@ -1,0 +1,62 @@
+struct PacketType {
+    raw: i64,
+}
+
+struct PlayerState {
+    raw: i64,
+}
+
+def make_packet_type(raw: i64) -> PacketType
+{
+    PacketType {
+        raw: raw,
+    }
+}
+
+def packet_type_raw(packet_type: PacketType) -> i64
+{
+    packet_type.raw
+}
+
+def is_packet_request_type(packet_type: PacketType) -> bool
+{
+    (packet_type.raw & 0x100) != 0
+}
+
+def is_packet_reply_type(packet_type: PacketType) -> bool
+{
+    (packet_type.raw & 0x200) != 0
+}
+
+def is_packet_notification_type(packet_type: PacketType) -> bool
+{
+    (packet_type.raw & 0x400) != 0
+}
+
+def make_player_state(raw: i64) -> PlayerState
+requires raw >= 0 && raw <= 6
+{
+    PlayerState {
+        raw: raw,
+    }
+}
+
+def player_state_raw(state: PlayerState) -> i64
+{
+    state.raw
+}
+
+def is_player_state_online(state: PlayerState) -> bool
+{
+    state.raw == 1
+}
+
+def is_player_state_trust(state: PlayerState) -> bool
+{
+    state.raw == 2
+}
+
+def is_player_state_known(state: PlayerState) -> bool
+{
+    state.raw >= 0 && state.raw <= 6
+}
