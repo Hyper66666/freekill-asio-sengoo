@@ -23,6 +23,7 @@ This directory is intentionally isolated from the current C++ server and has its
 - `docs/`: migration map and milestone gates
 - `docs/RUNTIME_PARITY_CHECKLIST.md`: runtime equivalence acceptance checklist
 - `tests/smoke/`: milestone and completion smoke checks
+- `tests/runtime/`: runtime artifact parity harness scripts
 
 ## Local Checks
 
