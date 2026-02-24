@@ -1,0 +1,48 @@
+def should_accept_lua_hello_notification(
+    packet_is_notification: bool,
+    method_is_hello: bool,
+    packet_id: i64,
+) -> bool
+{
+    packet_is_notification && method_is_hello && packet_id == -1
+}
+
+def should_match_waited_lua_response(
+    packet_id: i64,
+    expected_id: i64,
+    method_is_empty: bool,
+    error_code: i64,
+) -> bool
+{
+    packet_id == expected_id && method_is_empty && error_code == 0
+}
+
+def should_abort_wait_on_lua_rpc_error(error_code: i64) -> bool
+{
+    error_code != 0
+}
+
+def can_dispatch_server_rpc_method(method_exists: bool, packet_is_notification: bool) -> bool
+{
+    method_exists && packet_is_notification
+}
+
+def should_send_lua_error_response(handler_error_code: i64) -> bool
+{
+    handler_error_code < 0
+}
+
+def should_send_lua_success_response(handler_error_code: i64, response_id: i64) -> bool
+{
+    handler_error_code >= 0 && response_id > 0
+}
+
+def should_skip_lua_response_for_notification(response_id: i64) -> bool
+{
+    response_id < 0
+}
+
+def should_accept_incomplete_stream(decode_needs_more_data: bool) -> bool
+{
+    decode_needs_more_data
+}
