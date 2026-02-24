@@ -1,0 +1,113 @@
+def packet_flag_compressed() -> i64
+ensures result == 0x1000
+{
+    0x1000
+}
+
+def packet_type_request() -> i64
+ensures result == 0x100
+{
+    0x100
+}
+
+def packet_type_reply() -> i64
+ensures result == 0x200
+{
+    0x200
+}
+
+def packet_type_notification() -> i64
+ensures result == 0x400
+{
+    0x400
+}
+
+def packet_src_client() -> i64
+ensures result == 0x010
+{
+    0x010
+}
+
+def packet_src_server() -> i64
+ensures result == 0x020
+{
+    0x020
+}
+
+def packet_src_lobby() -> i64
+ensures result == 0x040
+{
+    0x040
+}
+
+def packet_dest_client() -> i64
+ensures result == 0x001
+{
+    0x001
+}
+
+def packet_dest_server() -> i64
+ensures result == 0x002
+{
+    0x002
+}
+
+def packet_dest_lobby() -> i64
+ensures result == 0x004
+{
+    0x004
+}
+
+def packet_setup_client_to_server_notification_type() -> i64
+ensures result == 1042
+{
+    packet_type_notification() + packet_src_client() + packet_dest_server()
+}
+
+def packet_setup_server_to_client_notification_type() -> i64
+ensures result == 1057
+{
+    packet_type_notification() + packet_src_server() + packet_dest_client()
+}
+
+def player_state_invalid() -> i64
+ensures result == 0
+{
+    0
+}
+
+def player_state_online() -> i64
+ensures result == 1
+{
+    1
+}
+
+def player_state_trust() -> i64
+ensures result == 2
+{
+    2
+}
+
+def player_state_run() -> i64
+ensures result == 3
+{
+    3
+}
+
+def player_state_leave() -> i64
+ensures result == 4
+{
+    4
+}
+
+def player_state_robot() -> i64
+ensures result == 5
+{
+    5
+}
+
+def player_state_offline() -> i64
+ensures result == 6
+{
+    6
+}
