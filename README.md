@@ -11,6 +11,7 @@ This directory is intentionally isolated from the current C++ server and has its
 - Contract-layer Sengoo modules and smoke checks are in place
 - Unified completion gate available at `tests/smoke/rewrite_completion_smoke.ps1`
 - Milestone contract gates M1-M6 are wired and executable via smoke scripts
+- Runtime parity tooling chain (scaffold/builder/pipeline/harness) is in place with placeholder-evidence guard
 
 ## Directory Layout
 
