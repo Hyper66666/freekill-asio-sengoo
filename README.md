@@ -6,9 +6,10 @@ This directory is intentionally isolated from the current C++ server and has its
 
 ## Current Status
 
-- Bootstrap completed
-- Source mapping and milestone gates documented
-- Networking milestone skeleton created
+- Isolated rewrite workspace and independent git history are active
+- cpp-to-sg migration mapping is complete for current legacy `src/**/*.cpp`
+- Contract-layer Sengoo modules and smoke checks are in place
+- Unified completion gate available at `tests/smoke/rewrite_completion_smoke.ps1`
 
 ## Directory Layout
 
@@ -19,12 +20,13 @@ This directory is intentionally isolated from the current C++ server and has its
 - `src/entity_sg/`: player/entity migration target
 - `src/ffi_bridge_sg/`: C/Lua/FFI bridge migration target
 - `docs/`: migration map and milestone gates
-- `tests/smoke/`: bootstrap smoke checks
+- `tests/smoke/`: milestone and completion smoke checks
 
 ## Local Checks
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/bootstrap_smoke.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/rewrite_completion_smoke.ps1
 ```
 
 If `sgc` is available locally:
