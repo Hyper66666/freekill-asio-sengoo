@@ -12,3 +12,5 @@ target/
 .githooks/
 .mcp-guard/
 .spec-workflow/
+tests/artifacts/
+tests/.tmp_*/
