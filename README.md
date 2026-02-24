@@ -10,6 +10,7 @@ This directory is intentionally isolated from the current C++ server and has its
 - cpp-to-sg migration mapping is complete for current legacy `src/**/*.cpp`
 - Contract-layer Sengoo modules and smoke checks are in place
 - Unified completion gate available at `tests/smoke/rewrite_completion_smoke.ps1`
+- Milestone contract gates M1-M6 are wired and executable via smoke scripts
 
 ## Directory Layout
 
