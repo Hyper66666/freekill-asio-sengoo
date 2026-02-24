@@ -14,3 +14,4 @@ target/
 .spec-workflow/
 tests/artifacts/
 tests/.tmp_*/
+.tmp/
