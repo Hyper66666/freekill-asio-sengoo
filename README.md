@@ -34,6 +34,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/rewrite_completi
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/run_all_smoke.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_artifact_builder_smoke.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_case_scaffold_smoke.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_case_collector_smoke.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_parity_harness_smoke.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_parity_pipeline_smoke.ps1
 ```
