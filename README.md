@@ -21,6 +21,7 @@ This directory is intentionally isolated from the current C++ server and has its
 - `src/entity_sg/`: player/entity migration target
 - `src/ffi_bridge_sg/`: C/Lua/FFI bridge migration target
 - `docs/`: migration map and milestone gates
+- `docs/RUNTIME_PARITY_CHECKLIST.md`: runtime equivalence acceptance checklist
 - `tests/smoke/`: milestone and completion smoke checks
 
 ## Local Checks
