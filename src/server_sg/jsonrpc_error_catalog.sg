@@ -1,0 +1,45 @@
+def parse_error_code() -> i64
+ensures result == -32700
+{
+    -32700
+}
+
+def invalid_request_code() -> i64
+ensures result == -32600
+{
+    -32600
+}
+
+def method_not_found_code() -> i64
+ensures result == -32601
+{
+    -32601
+}
+
+def invalid_params_code() -> i64
+ensures result == -32602
+{
+    -32602
+}
+
+def internal_error_code() -> i64
+ensures result == -32603
+{
+    -32603
+}
+
+def server_error_code() -> i64
+ensures result == -32000
+{
+    -32000
+}
+
+def is_standard_jsonrpc_error_code(code: i64) -> bool
+{
+    code == parse_error_code()
+        || code == invalid_request_code()
+        || code == method_not_found_code()
+        || code == invalid_params_code()
+        || code == internal_error_code()
+        || code == server_error_code()
+}
