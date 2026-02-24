@@ -1,0 +1,55 @@
+def next_state_on_disconnect() -> i64
+ensures result == 6
+{
+    6
+}
+
+def should_mark_runned_after_disconnect(inside_game: bool, is_died: bool) -> bool
+{
+    inside_game && !is_died
+}
+
+def next_state_on_reconnect() -> i64
+ensures result == 1
+{
+    1
+}
+
+def should_resume_game_timer(state_code: i64) -> bool
+{
+    state_code == 1
+}
+
+def should_pause_game_timer(state_code: i64) -> bool
+{
+    state_code != 1
+}
+
+def should_reset_ttl_on_heartbeat(command_is_heartbeat: bool) -> bool
+{
+    command_is_heartbeat
+}
+
+def should_forward_notification_to_room(command_is_heartbeat: bool, room_exists: bool) -> bool
+{
+    !command_is_heartbeat && room_exists
+}
+
+def should_delete_player_when_disconnected(inside_game: bool) -> bool
+{
+    !inside_game
+}
+
+def should_wakeup_roomthread_on_disconnect(
+    inside_game: bool,
+    is_thinking: bool,
+    thread_exists: bool,
+) -> bool
+{
+    inside_game && is_thinking && thread_exists
+}
+
+def can_emit_ready_changed(room_exists: bool) -> bool
+{
+    room_exists
+}
