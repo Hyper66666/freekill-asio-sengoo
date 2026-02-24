@@ -23,6 +23,7 @@ This directory is intentionally isolated from the current C++ server and has its
 - `src/ffi_bridge_sg/`: C/Lua/FFI bridge migration target
 - `docs/`: migration map and milestone gates
 - `docs/RUNTIME_PARITY_CHECKLIST.md`: runtime equivalence acceptance checklist
+- `docs/RUNTIME_EVENT_SCHEMA.md`: runtime collector input schema and examples
 - `tests/smoke/`: milestone and completion smoke checks
 - `tests/runtime/`: runtime artifact parity harness scripts
 
