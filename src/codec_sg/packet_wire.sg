@@ -1,0 +1,69 @@
+def is_valid_packet_field_count(field_count: i64) -> bool
+{
+    field_count == 4 || field_count == 6
+}
+
+def packet_has_extended_timing_fields(field_count: i64) -> bool
+{
+    field_count == 6
+}
+
+def has_single_primary_packet_kind(primary_kind_count: i64) -> bool
+requires primary_kind_count >= 0
+{
+    primary_kind_count == 1
+}
+
+def has_valid_packet_direction(source_kind_count: i64, dest_kind_count: i64) -> bool
+requires source_kind_count >= 0 && dest_kind_count >= 0
+{
+    source_kind_count == 1 && dest_kind_count == 1
+}
+
+def can_accept_setup_notification(
+    request_id: i64,
+    is_notification_kind: bool,
+    is_client_source: bool,
+    is_server_destination: bool,
+    field_count: i64,
+) -> bool
+{
+    request_id == -2
+        && is_notification_kind
+        && is_client_source
+        && is_server_destination
+        && field_count == 4
+}
+
+def can_accept_timed_request(field_count: i64, timeout_seconds: i64, timestamp_ms: i64) -> bool
+{
+    field_count == 6 && timeout_seconds >= -1 && timestamp_ms > 0
+}
+
+def should_decompress_payload(compressed_flag_set: bool) -> bool
+{
+    compressed_flag_set
+}
+
+def is_packet_roundtrip_header_equal(
+    request_id_equal: bool,
+    type_equal: bool,
+    command_equal: bool,
+    payload_equal: bool,
+) -> bool
+{
+    request_id_equal && type_equal && command_equal && payload_equal
+}
+
+def is_packet_roundtrip_timing_equal(
+    has_timing_fields: bool,
+    timeout_equal: bool,
+    timestamp_equal: bool,
+) -> bool
+{
+    if has_timing_fields {
+        timeout_equal && timestamp_equal
+    } else {
+        true
+    }
+}
