@@ -31,6 +31,7 @@ This directory is intentionally isolated from the current C++ server and has its
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/bootstrap_smoke.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/rewrite_completion_smoke.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/run_all_smoke.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_parity_harness_smoke.ps1
 ```
 
 If `sgc` is available locally:
