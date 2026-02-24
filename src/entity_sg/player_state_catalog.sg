@@ -1,0 +1,51 @@
+def state_invalid() -> i64
+ensures result == 0
+{
+    0
+}
+
+def state_online() -> i64
+ensures result == 1
+{
+    1
+}
+
+def state_trust() -> i64
+ensures result == 2
+{
+    2
+}
+
+def state_run() -> i64
+ensures result == 3
+{
+    3
+}
+
+def state_leave() -> i64
+ensures result == 4
+{
+    4
+}
+
+def state_robot() -> i64
+ensures result == 5
+{
+    5
+}
+
+def state_offline() -> i64
+ensures result == 6
+{
+    6
+}
+
+def is_known_player_state(state_code: i64) -> bool
+{
+    state_code >= 0 && state_code <= 6
+}
+
+def should_resume_timer_for_state(state_code: i64) -> bool
+{
+    state_code == state_online()
+}
