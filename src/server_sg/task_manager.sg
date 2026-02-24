@@ -4,22 +4,55 @@ requires conn_id >= 0
     task_exists && conn_id > 0
 }
 
+def should_reject_task_rebind_reason_code(old_conn_id: i64, new_conn_id: i64) -> i64
+requires old_conn_id >= 0 && new_conn_id >= 0
+ensures result == 0 || result == 5401
+{
+    if old_conn_id > 0 && old_conn_id != new_conn_id {
+        5401
+    } else {
+        0
+    }
+}
+
 def should_reject_task_rebind(old_conn_id: i64, new_conn_id: i64) -> bool
 requires old_conn_id >= 0 && new_conn_id >= 0
 {
-    old_conn_id > 0 && old_conn_id != new_conn_id
+    should_reject_task_rebind_reason_code(old_conn_id, new_conn_id) != 0
+}
+
+def should_track_request_id_reason_code(req_id: i64) -> i64
+requires req_id >= 0
+ensures result == 0 || result == 5402
+{
+    if req_id > 0 {
+        5402
+    } else {
+        0
+    }
 }
 
 def should_track_request_id(req_id: i64) -> bool
 requires req_id >= 0
 {
-    req_id > 0
+    should_track_request_id_reason_code(req_id) != 0
+}
+
+def should_remove_user_task_bucket_reason_code(task_count_after_remove: i64) -> i64
+requires task_count_after_remove >= 0
+ensures result == 0 || result == 5403
+{
+    if task_count_after_remove == 0 {
+        5403
+    } else {
+        0
+    }
 }
 
 def should_remove_user_task_bucket(task_count_after_remove: i64) -> bool
 requires task_count_after_remove >= 0
 {
-    task_count_after_remove == 0
+    should_remove_user_task_bucket_reason_code(task_count_after_remove) != 0
 }
 
 def can_lookup_task_by_request_id(mapping_exists: bool, task_exists: bool) -> bool

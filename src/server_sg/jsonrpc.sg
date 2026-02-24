@@ -33,22 +33,66 @@ ensures result >= 0 && result <= 3
     }
 }
 
+def copy_error_response_id_reason_code(error_code: i64, request_id: i64) -> i64
+ensures result == 0 || result == 5104 || result == 5105 || result == 5106
+{
+    if request_id < 0 {
+        5104
+    } else if error_code == -32700 {
+        5105
+    } else if error_code == -32600 {
+        5106
+    } else {
+        0
+    }
+}
+
 def should_copy_error_response_id(error_code: i64, request_id: i64) -> bool
 {
-    request_id >= 0 && error_code != -32700 && error_code != -32600
+    copy_error_response_id_reason_code(error_code, request_id) == 0
+}
+
+def should_reject_empty_method_reason_code(method_is_empty: bool) -> i64
+ensures result == 0 || result == 5101
+{
+    if method_is_empty {
+        5101
+    } else {
+        0
+    }
 }
 
 def should_reject_empty_method(method_is_empty: bool) -> bool
 {
-    method_is_empty
+    should_reject_empty_method_reason_code(method_is_empty) != 0
+}
+
+def should_report_method_not_found_reason_code(method_exists: bool) -> i64
+ensures result == 0 || result == 5102
+{
+    if !method_exists {
+        5102
+    } else {
+        0
+    }
 }
 
 def should_report_method_not_found(method_exists: bool) -> bool
 {
-    !method_exists
+    should_report_method_not_found_reason_code(method_exists) != 0
+}
+
+def should_convert_handler_failure_reason_code(handler_success: bool) -> i64
+ensures result == 0 || result == 5103
+{
+    if !handler_success {
+        5103
+    } else {
+        0
+    }
 }
 
 def should_convert_handler_failure_to_invalid_params(handler_success: bool) -> bool
 {
-    !handler_success
+    should_convert_handler_failure_reason_code(handler_success) != 0
 }

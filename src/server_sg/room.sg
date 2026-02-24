@@ -14,10 +14,25 @@ requires requester_conn_id >= 0 && owner_conn_id >= 0 && player_count >= 0 && ca
     requester_conn_id == owner_conn_id && player_count < capacity
 }
 
+def should_mark_room_abandoned_reason_code(player_count: i64, online_socket_count: i64) -> i64
+requires player_count >= 0 && online_socket_count >= 0
+ensures result == 0 || result == 5201 || result == 5202 || result == 5203
+{
+    if player_count == 0 && online_socket_count == 0 {
+        5203
+    } else if player_count == 0 {
+        5201
+    } else if online_socket_count == 0 {
+        5202
+    } else {
+        0
+    }
+}
+
 def should_mark_room_abandoned(player_count: i64, online_socket_count: i64) -> bool
 requires player_count >= 0 && online_socket_count >= 0
 {
-    player_count == 0 || online_socket_count == 0
+    should_mark_room_abandoned_reason_code(player_count, online_socket_count) != 0
 }
 
 def next_room_session_id(last_session_id: i64) -> i64
@@ -27,8 +42,21 @@ ensures result > last_session_id
     last_session_id + 1
 }
 
+def should_toggle_trust_state_reason_code(room_started: bool, current_state_code: i64) -> i64
+requires current_state_code >= 0
+ensures result == 0 || result == 5211 || result == 5212
+{
+    if room_started && current_state_code == 1 {
+        5211
+    } else if room_started && current_state_code == 2 {
+        5212
+    } else {
+        0
+    }
+}
+
 def should_toggle_trust_state(room_started: bool, current_state_code: i64) -> bool
 requires current_state_code >= 0
 {
-    room_started && (current_state_code == 1 || current_state_code == 2)
+    should_toggle_trust_state_reason_code(room_started, current_state_code) != 0
 }
