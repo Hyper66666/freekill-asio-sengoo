@@ -1,0 +1,27 @@
+def min_stable_iterations() -> i64
+ensures result == 3
+{
+    3
+}
+
+def can_begin_soak(iterations: i64) -> bool
+{
+    iterations > 0
+}
+
+def should_continue_soak(current_iteration: i64, total_iterations: i64) -> bool
+requires current_iteration >= 0 && total_iterations >= 0
+{
+    current_iteration < total_iterations
+}
+
+def should_abort_soak_on_error(has_error: bool) -> bool
+{
+    has_error
+}
+
+def is_soak_success(total_iterations: i64, passed_iterations: i64) -> bool
+requires total_iterations >= 0 && passed_iterations >= 0
+{
+    total_iterations > 0 && passed_iterations == total_iterations
+}
