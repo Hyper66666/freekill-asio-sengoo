@@ -26,3 +26,221 @@ def is_password_hash_match(stored_hash_matches: bool) -> bool
 {
     stored_hash_matches
 }
+
+struct AuthRuntimeState {
+    successful_login_count: i64,
+    rejected_login_count: i64,
+    rejected_version_count: i64,
+    rejected_md5_count: i64,
+    rejected_ban_count: i64,
+    device_registration_count: i64,
+    last_client_major: i64,
+    last_client_minor: i64,
+    last_client_patch: i64,
+    last_uuid_count: i64,
+    max_players_per_device: i64,
+}
+
+struct AuthTransitionResult {
+    state: AuthRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_auth_runtime_state(max_players_per_device: i64) -> AuthRuntimeState
+requires max_players_per_device >= 0
+{
+    AuthRuntimeState {
+        successful_login_count: 0,
+        rejected_login_count: 0,
+        rejected_version_count: 0,
+        rejected_md5_count: 0,
+        rejected_ban_count: 0,
+        device_registration_count: 0,
+        last_client_major: 0,
+        last_client_minor: 0,
+        last_client_patch: 0,
+        last_uuid_count: 0,
+        max_players_per_device: max_players_per_device,
+    }
+}
+
+def apply_auth_client_version(
+    state: AuthRuntimeState,
+    major: i64,
+    minor: i64,
+    patch: i64,
+) -> AuthTransitionResult
+requires major >= 0 && minor >= 0 && patch >= 0
+{
+    if is_supported_client_version(major, minor, patch) {
+        AuthTransitionResult {
+            state: AuthRuntimeState {
+                successful_login_count: state.successful_login_count,
+                rejected_login_count: state.rejected_login_count,
+                rejected_version_count: state.rejected_version_count,
+                rejected_md5_count: state.rejected_md5_count,
+                rejected_ban_count: state.rejected_ban_count,
+                device_registration_count: state.device_registration_count,
+                last_client_major: major,
+                last_client_minor: minor,
+                last_client_patch: patch,
+                last_uuid_count: state.last_uuid_count,
+                max_players_per_device: state.max_players_per_device,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        AuthTransitionResult {
+            state: AuthRuntimeState {
+                successful_login_count: state.successful_login_count,
+                rejected_login_count: state.rejected_login_count + 1,
+                rejected_version_count: state.rejected_version_count + 1,
+                rejected_md5_count: state.rejected_md5_count,
+                rejected_ban_count: state.rejected_ban_count,
+                device_registration_count: state.device_registration_count,
+                last_client_major: major,
+                last_client_minor: minor,
+                last_client_patch: patch,
+                last_uuid_count: state.last_uuid_count,
+                max_players_per_device: state.max_players_per_device,
+            },
+            applied: false,
+            reason_code: 8701,
+        }
+    }
+}
+
+def apply_auth_md5_check(state: AuthRuntimeState, server_md5_matches: bool) -> AuthTransitionResult
+{
+    if should_reject_md5(server_md5_matches) {
+        AuthTransitionResult {
+            state: AuthRuntimeState {
+                successful_login_count: state.successful_login_count,
+                rejected_login_count: state.rejected_login_count + 1,
+                rejected_version_count: state.rejected_version_count,
+                rejected_md5_count: state.rejected_md5_count + 1,
+                rejected_ban_count: state.rejected_ban_count,
+                device_registration_count: state.device_registration_count,
+                last_client_major: state.last_client_major,
+                last_client_minor: state.last_client_minor,
+                last_client_patch: state.last_client_patch,
+                last_uuid_count: state.last_uuid_count,
+                max_players_per_device: state.max_players_per_device,
+            },
+            applied: false,
+            reason_code: 8702,
+        }
+    } else {
+        AuthTransitionResult {
+            state: state,
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_auth_uuid_ban_check(state: AuthRuntimeState, uuid_banned: bool) -> AuthTransitionResult
+{
+    if should_reject_banned_uuid(uuid_banned) {
+        AuthTransitionResult {
+            state: AuthRuntimeState {
+                successful_login_count: state.successful_login_count,
+                rejected_login_count: state.rejected_login_count + 1,
+                rejected_version_count: state.rejected_version_count,
+                rejected_md5_count: state.rejected_md5_count,
+                rejected_ban_count: state.rejected_ban_count + 1,
+                device_registration_count: state.device_registration_count,
+                last_client_major: state.last_client_major,
+                last_client_minor: state.last_client_minor,
+                last_client_patch: state.last_client_patch,
+                last_uuid_count: state.last_uuid_count,
+                max_players_per_device: state.max_players_per_device,
+            },
+            applied: false,
+            reason_code: 8703,
+        }
+    } else {
+        AuthTransitionResult {
+            state: state,
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_auth_device_login(
+    state: AuthRuntimeState,
+    existing_uuid_count: i64,
+    stored_hash_matches: bool,
+) -> AuthTransitionResult
+requires existing_uuid_count >= 0
+{
+    if !can_register_on_device(existing_uuid_count, state.max_players_per_device) {
+        AuthTransitionResult {
+            state: AuthRuntimeState {
+                successful_login_count: state.successful_login_count,
+                rejected_login_count: state.rejected_login_count + 1,
+                rejected_version_count: state.rejected_version_count,
+                rejected_md5_count: state.rejected_md5_count,
+                rejected_ban_count: state.rejected_ban_count,
+                device_registration_count: state.device_registration_count,
+                last_client_major: state.last_client_major,
+                last_client_minor: state.last_client_minor,
+                last_client_patch: state.last_client_patch,
+                last_uuid_count: existing_uuid_count,
+                max_players_per_device: state.max_players_per_device,
+            },
+            applied: false,
+            reason_code: 8704,
+        }
+    } else if !is_password_hash_match(stored_hash_matches) {
+        AuthTransitionResult {
+            state: AuthRuntimeState {
+                successful_login_count: state.successful_login_count,
+                rejected_login_count: state.rejected_login_count + 1,
+                rejected_version_count: state.rejected_version_count,
+                rejected_md5_count: state.rejected_md5_count,
+                rejected_ban_count: state.rejected_ban_count,
+                device_registration_count: state.device_registration_count,
+                last_client_major: state.last_client_major,
+                last_client_minor: state.last_client_minor,
+                last_client_patch: state.last_client_patch,
+                last_uuid_count: existing_uuid_count,
+                max_players_per_device: state.max_players_per_device,
+            },
+            applied: false,
+            reason_code: 8705,
+        }
+    } else {
+        AuthTransitionResult {
+            state: AuthRuntimeState {
+                successful_login_count: state.successful_login_count + 1,
+                rejected_login_count: state.rejected_login_count,
+                rejected_version_count: state.rejected_version_count,
+                rejected_md5_count: state.rejected_md5_count,
+                rejected_ban_count: state.rejected_ban_count,
+                device_registration_count: state.device_registration_count + 1,
+                last_client_major: state.last_client_major,
+                last_client_minor: state.last_client_minor,
+                last_client_patch: state.last_client_patch,
+                last_uuid_count: existing_uuid_count + 1,
+                max_players_per_device: state.max_players_per_device,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def should_auth_rate_limit(state: AuthRuntimeState, max_rejected_login: i64) -> bool
+requires max_rejected_login >= 0
+{
+    state.rejected_login_count >= max_rejected_login
+}
+
+def can_auth_issue_session(state: AuthRuntimeState) -> bool
+{
+    state.successful_login_count >= state.rejected_login_count
+}

@@ -44,3 +44,213 @@ def can_return_global_save_json(
 {
     has_row && has_data_field && !is_null_marker && starts_with_json_container
 }
+
+struct RoombaseRuntimeState {
+    chat_dispatch_count: i64,
+    dropped_chat_count: i64,
+    lobby_chat_count: i64,
+    global_save_schedule_count: i64,
+    global_save_return_count: i64,
+    rejected_count: i64,
+    last_capped_message_length: i64,
+    last_chat_type: i64,
+}
+
+struct RoombaseTransitionResult {
+    state: RoombaseRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_roombase_runtime_state() -> RoombaseRuntimeState
+{
+    RoombaseRuntimeState {
+        chat_dispatch_count: 0,
+        dropped_chat_count: 0,
+        lobby_chat_count: 0,
+        global_save_schedule_count: 0,
+        global_save_return_count: 0,
+        rejected_count: 0,
+        last_capped_message_length: 0,
+        last_chat_type: 0,
+    }
+}
+
+def apply_roombase_chat(
+    state: RoombaseRuntimeState,
+    payload_is_object: bool,
+    ban_word_allowed: bool,
+    mute_type: i64,
+    message_length: i64,
+    chat_type: i64,
+) -> RoombaseTransitionResult
+requires mute_type >= 0 && message_length >= 0
+{
+    if !should_dispatch_chat_payload(payload_is_object) {
+        RoombaseTransitionResult {
+            state: RoombaseRuntimeState {
+                chat_dispatch_count: state.chat_dispatch_count,
+                dropped_chat_count: state.dropped_chat_count,
+                lobby_chat_count: state.lobby_chat_count,
+                global_save_schedule_count: state.global_save_schedule_count,
+                global_save_return_count: state.global_save_return_count,
+                rejected_count: state.rejected_count + 1,
+                last_capped_message_length: state.last_capped_message_length,
+                last_chat_type: chat_type,
+            },
+            applied: false,
+            reason_code: 9101,
+        }
+    } else {
+        let capped_len = capped_chat_message_length(message_length);
+        let should_drop = should_drop_chat_for_policy(ban_word_allowed, mute_type);
+        let next_lobby_chat_count = if is_lobby_chat_type(chat_type) && !should_drop {
+            state.lobby_chat_count + 1
+        } else {
+            state.lobby_chat_count
+        };
+        if should_drop {
+            RoombaseTransitionResult {
+                state: RoombaseRuntimeState {
+                    chat_dispatch_count: state.chat_dispatch_count,
+                    dropped_chat_count: state.dropped_chat_count + 1,
+                    lobby_chat_count: next_lobby_chat_count,
+                    global_save_schedule_count: state.global_save_schedule_count,
+                    global_save_return_count: state.global_save_return_count,
+                    rejected_count: state.rejected_count + 1,
+                    last_capped_message_length: capped_len,
+                    last_chat_type: chat_type,
+                },
+                applied: false,
+                reason_code: 9102,
+            }
+        } else {
+            RoombaseTransitionResult {
+                state: RoombaseRuntimeState {
+                    chat_dispatch_count: state.chat_dispatch_count + 1,
+                    dropped_chat_count: state.dropped_chat_count,
+                    lobby_chat_count: next_lobby_chat_count,
+                    global_save_schedule_count: state.global_save_schedule_count,
+                    global_save_return_count: state.global_save_return_count,
+                    rejected_count: state.rejected_count,
+                    last_capped_message_length: capped_len,
+                    last_chat_type: chat_type,
+                },
+                applied: true,
+                reason_code: 0,
+            }
+        }
+    }
+}
+
+def apply_roombase_global_save_schedule(
+    state: RoombaseRuntimeState,
+    decoded_bytes: i64,
+    key_is_sql_safe: bool,
+) -> RoombaseTransitionResult
+requires decoded_bytes >= 0
+{
+    if !can_decode_global_save_key(decoded_bytes) {
+        RoombaseTransitionResult {
+            state: RoombaseRuntimeState {
+                chat_dispatch_count: state.chat_dispatch_count,
+                dropped_chat_count: state.dropped_chat_count,
+                lobby_chat_count: state.lobby_chat_count,
+                global_save_schedule_count: state.global_save_schedule_count,
+                global_save_return_count: state.global_save_return_count,
+                rejected_count: state.rejected_count + 1,
+                last_capped_message_length: state.last_capped_message_length,
+                last_chat_type: state.last_chat_type,
+            },
+            applied: false,
+            reason_code: 9103,
+        }
+    } else if !can_schedule_global_save(key_is_sql_safe) {
+        RoombaseTransitionResult {
+            state: RoombaseRuntimeState {
+                chat_dispatch_count: state.chat_dispatch_count,
+                dropped_chat_count: state.dropped_chat_count,
+                lobby_chat_count: state.lobby_chat_count,
+                global_save_schedule_count: state.global_save_schedule_count,
+                global_save_return_count: state.global_save_return_count,
+                rejected_count: state.rejected_count + 1,
+                last_capped_message_length: state.last_capped_message_length,
+                last_chat_type: state.last_chat_type,
+            },
+            applied: false,
+            reason_code: 9104,
+        }
+    } else {
+        RoombaseTransitionResult {
+            state: RoombaseRuntimeState {
+                chat_dispatch_count: state.chat_dispatch_count,
+                dropped_chat_count: state.dropped_chat_count,
+                lobby_chat_count: state.lobby_chat_count,
+                global_save_schedule_count: state.global_save_schedule_count + 1,
+                global_save_return_count: state.global_save_return_count,
+                rejected_count: state.rejected_count,
+                last_capped_message_length: state.last_capped_message_length,
+                last_chat_type: state.last_chat_type,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_roombase_global_save_return(
+    state: RoombaseRuntimeState,
+    has_row: bool,
+    has_data_field: bool,
+    is_null_marker: bool,
+    starts_with_json_container: bool,
+) -> RoombaseTransitionResult
+{
+    if can_return_global_save_json(
+        has_row,
+        has_data_field,
+        is_null_marker,
+        starts_with_json_container
+    ) {
+        RoombaseTransitionResult {
+            state: RoombaseRuntimeState {
+                chat_dispatch_count: state.chat_dispatch_count,
+                dropped_chat_count: state.dropped_chat_count,
+                lobby_chat_count: state.lobby_chat_count,
+                global_save_schedule_count: state.global_save_schedule_count,
+                global_save_return_count: state.global_save_return_count + 1,
+                rejected_count: state.rejected_count,
+                last_capped_message_length: state.last_capped_message_length,
+                last_chat_type: state.last_chat_type,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        RoombaseTransitionResult {
+            state: RoombaseRuntimeState {
+                chat_dispatch_count: state.chat_dispatch_count,
+                dropped_chat_count: state.dropped_chat_count,
+                lobby_chat_count: state.lobby_chat_count,
+                global_save_schedule_count: state.global_save_schedule_count,
+                global_save_return_count: state.global_save_return_count,
+                rejected_count: state.rejected_count + 1,
+                last_capped_message_length: state.last_capped_message_length,
+                last_chat_type: state.last_chat_type,
+            },
+            applied: false,
+            reason_code: 9105,
+        }
+    }
+}
+
+def should_roombase_backpressure(state: RoombaseRuntimeState, max_dropped_chat: i64) -> bool
+requires max_dropped_chat >= 0
+{
+    state.dropped_chat_count >= max_dropped_chat
+}
+
+def can_roombase_emit_global_save(state: RoombaseRuntimeState) -> bool
+{
+    state.global_save_schedule_count >= state.global_save_return_count
+}

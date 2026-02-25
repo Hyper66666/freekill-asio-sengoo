@@ -55,3 +55,282 @@ def should_throw_unknown_rpc_response_type(error_code: i64, response_id: i64) ->
 {
     error_code >= 0 && response_id <= 0
 }
+
+struct RpcLuaRuntimeState {
+    waited_response_match_count: i64,
+    waited_notification_match_count: i64,
+    wait_abort_count: i64,
+    sent_error_count: i64,
+    sent_success_count: i64,
+    unknown_response_count: i64,
+    dead_process_return_count: i64,
+    rejected_count: i64,
+    last_error_code: i64,
+    last_packet_id: i64,
+}
+
+struct RpcLuaTransitionResult {
+    state: RpcLuaRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_rpc_lua_runtime_state() -> RpcLuaRuntimeState
+{
+    RpcLuaRuntimeState {
+        waited_response_match_count: 0,
+        waited_notification_match_count: 0,
+        wait_abort_count: 0,
+        sent_error_count: 0,
+        sent_success_count: 0,
+        unknown_response_count: 0,
+        dead_process_return_count: 0,
+        rejected_count: 0,
+        last_error_code: 0,
+        last_packet_id: 0,
+    }
+}
+
+def apply_rpc_lua_process_alive(
+    state: RpcLuaRuntimeState,
+    process_alive: bool,
+) -> RpcLuaTransitionResult
+{
+    if should_return_when_rpc_process_dead(process_alive) {
+        RpcLuaTransitionResult {
+            state: RpcLuaRuntimeState {
+                waited_response_match_count: state.waited_response_match_count,
+                waited_notification_match_count: state.waited_notification_match_count,
+                wait_abort_count: state.wait_abort_count,
+                sent_error_count: state.sent_error_count,
+                sent_success_count: state.sent_success_count,
+                unknown_response_count: state.unknown_response_count,
+                dead_process_return_count: state.dead_process_return_count + 1,
+                rejected_count: state.rejected_count + 1,
+                last_error_code: state.last_error_code,
+                last_packet_id: state.last_packet_id,
+            },
+            applied: false,
+            reason_code: 9401,
+        }
+    } else {
+        RpcLuaTransitionResult {
+            state: state,
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_rpc_lua_wait_response(
+    state: RpcLuaRuntimeState,
+    wait_for_response: bool,
+    packet_id: i64,
+    expected_id: i64,
+    method_is_empty: bool,
+    error_code: i64,
+) -> RpcLuaTransitionResult
+{
+    if should_match_waited_response(wait_for_response, packet_id, expected_id, method_is_empty, error_code) {
+        RpcLuaTransitionResult {
+            state: RpcLuaRuntimeState {
+                waited_response_match_count: state.waited_response_match_count + 1,
+                waited_notification_match_count: state.waited_notification_match_count,
+                wait_abort_count: state.wait_abort_count,
+                sent_error_count: state.sent_error_count,
+                sent_success_count: state.sent_success_count,
+                unknown_response_count: state.unknown_response_count,
+                dead_process_return_count: state.dead_process_return_count,
+                rejected_count: state.rejected_count,
+                last_error_code: error_code,
+                last_packet_id: packet_id,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else if should_abort_wait_on_rpc_error(error_code) {
+        RpcLuaTransitionResult {
+            state: RpcLuaRuntimeState {
+                waited_response_match_count: state.waited_response_match_count,
+                waited_notification_match_count: state.waited_notification_match_count,
+                wait_abort_count: state.wait_abort_count + 1,
+                sent_error_count: state.sent_error_count,
+                sent_success_count: state.sent_success_count,
+                unknown_response_count: state.unknown_response_count,
+                dead_process_return_count: state.dead_process_return_count,
+                rejected_count: state.rejected_count + 1,
+                last_error_code: error_code,
+                last_packet_id: packet_id,
+            },
+            applied: false,
+            reason_code: 9402,
+        }
+    } else {
+        RpcLuaTransitionResult {
+            state: RpcLuaRuntimeState {
+                waited_response_match_count: state.waited_response_match_count,
+                waited_notification_match_count: state.waited_notification_match_count,
+                wait_abort_count: state.wait_abort_count,
+                sent_error_count: state.sent_error_count,
+                sent_success_count: state.sent_success_count,
+                unknown_response_count: state.unknown_response_count,
+                dead_process_return_count: state.dead_process_return_count,
+                rejected_count: state.rejected_count + 1,
+                last_error_code: error_code,
+                last_packet_id: packet_id,
+            },
+            applied: false,
+            reason_code: 9403,
+        }
+    }
+}
+
+def apply_rpc_lua_wait_notification(
+    state: RpcLuaRuntimeState,
+    wait_for_notification: bool,
+    packet_id: i64,
+    method_matches: bool,
+    error_code: i64,
+) -> RpcLuaTransitionResult
+{
+    if should_match_waited_notification(wait_for_notification, packet_id, method_matches) {
+        RpcLuaTransitionResult {
+            state: RpcLuaRuntimeState {
+                waited_response_match_count: state.waited_response_match_count,
+                waited_notification_match_count: state.waited_notification_match_count + 1,
+                wait_abort_count: state.wait_abort_count,
+                sent_error_count: state.sent_error_count,
+                sent_success_count: state.sent_success_count,
+                unknown_response_count: state.unknown_response_count,
+                dead_process_return_count: state.dead_process_return_count,
+                rejected_count: state.rejected_count,
+                last_error_code: error_code,
+                last_packet_id: packet_id,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else if should_abort_wait_on_rpc_error(error_code) {
+        RpcLuaTransitionResult {
+            state: RpcLuaRuntimeState {
+                waited_response_match_count: state.waited_response_match_count,
+                waited_notification_match_count: state.waited_notification_match_count,
+                wait_abort_count: state.wait_abort_count + 1,
+                sent_error_count: state.sent_error_count,
+                sent_success_count: state.sent_success_count,
+                unknown_response_count: state.unknown_response_count,
+                dead_process_return_count: state.dead_process_return_count,
+                rejected_count: state.rejected_count + 1,
+                last_error_code: error_code,
+                last_packet_id: packet_id,
+            },
+            applied: false,
+            reason_code: 9402,
+        }
+    } else {
+        RpcLuaTransitionResult {
+            state: RpcLuaRuntimeState {
+                waited_response_match_count: state.waited_response_match_count,
+                waited_notification_match_count: state.waited_notification_match_count,
+                wait_abort_count: state.wait_abort_count,
+                sent_error_count: state.sent_error_count,
+                sent_success_count: state.sent_success_count,
+                unknown_response_count: state.unknown_response_count,
+                dead_process_return_count: state.dead_process_return_count,
+                rejected_count: state.rejected_count + 1,
+                last_error_code: error_code,
+                last_packet_id: packet_id,
+            },
+            applied: false,
+            reason_code: 9404,
+        }
+    }
+}
+
+def apply_rpc_lua_send_outcome(
+    state: RpcLuaRuntimeState,
+    error_code: i64,
+    response_id: i64,
+) -> RpcLuaTransitionResult
+{
+    if should_send_rpc_error(error_code) {
+        RpcLuaTransitionResult {
+            state: RpcLuaRuntimeState {
+                waited_response_match_count: state.waited_response_match_count,
+                waited_notification_match_count: state.waited_notification_match_count,
+                wait_abort_count: state.wait_abort_count,
+                sent_error_count: state.sent_error_count + 1,
+                sent_success_count: state.sent_success_count,
+                unknown_response_count: state.unknown_response_count,
+                dead_process_return_count: state.dead_process_return_count,
+                rejected_count: state.rejected_count,
+                last_error_code: error_code,
+                last_packet_id: response_id,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else if should_send_rpc_success_response(error_code, response_id) {
+        RpcLuaTransitionResult {
+            state: RpcLuaRuntimeState {
+                waited_response_match_count: state.waited_response_match_count,
+                waited_notification_match_count: state.waited_notification_match_count,
+                wait_abort_count: state.wait_abort_count,
+                sent_error_count: state.sent_error_count,
+                sent_success_count: state.sent_success_count + 1,
+                unknown_response_count: state.unknown_response_count,
+                dead_process_return_count: state.dead_process_return_count,
+                rejected_count: state.rejected_count,
+                last_error_code: error_code,
+                last_packet_id: response_id,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else if should_throw_unknown_rpc_response_type(error_code, response_id) {
+        RpcLuaTransitionResult {
+            state: RpcLuaRuntimeState {
+                waited_response_match_count: state.waited_response_match_count,
+                waited_notification_match_count: state.waited_notification_match_count,
+                wait_abort_count: state.wait_abort_count,
+                sent_error_count: state.sent_error_count,
+                sent_success_count: state.sent_success_count,
+                unknown_response_count: state.unknown_response_count + 1,
+                dead_process_return_count: state.dead_process_return_count,
+                rejected_count: state.rejected_count + 1,
+                last_error_code: error_code,
+                last_packet_id: response_id,
+            },
+            applied: false,
+            reason_code: 9405,
+        }
+    } else {
+        RpcLuaTransitionResult {
+            state: RpcLuaRuntimeState {
+                waited_response_match_count: state.waited_response_match_count,
+                waited_notification_match_count: state.waited_notification_match_count,
+                wait_abort_count: state.wait_abort_count,
+                sent_error_count: state.sent_error_count,
+                sent_success_count: state.sent_success_count,
+                unknown_response_count: state.unknown_response_count,
+                dead_process_return_count: state.dead_process_return_count,
+                rejected_count: state.rejected_count + 1,
+                last_error_code: error_code,
+                last_packet_id: response_id,
+            },
+            applied: false,
+            reason_code: 9406,
+        }
+    }
+}
+
+def should_rpc_lua_backpressure(state: RpcLuaRuntimeState, max_wait_abort_count: i64) -> bool
+requires max_wait_abort_count >= 0
+{
+    state.wait_abort_count >= max_wait_abort_count
+}
+
+def can_rpc_lua_continue(state: RpcLuaRuntimeState) -> bool
+{
+    state.unknown_response_count == 0
+}

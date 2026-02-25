@@ -60,3 +60,239 @@ requires current_state_code >= 0
 {
     should_toggle_trust_state_reason_code(room_started, current_state_code) != 0
 }
+
+struct RoomModuleRuntimeState {
+    session_id: i64,
+    player_count: i64,
+    capacity: i64,
+    owner_conn_id: i64,
+    started: bool,
+    outdated: bool,
+    abandoned_count: i64,
+    trust_toggle_count: i64,
+    rejected_count: i64,
+    last_state_code: i64,
+}
+
+struct RoomModuleTransitionResult {
+    state: RoomModuleRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_room_module_runtime_state(capacity: i64, owner_conn_id: i64, start_session_id: i64) -> RoomModuleRuntimeState
+requires capacity >= 0 && owner_conn_id >= 0 && start_session_id >= 0
+{
+    RoomModuleRuntimeState {
+        session_id: start_session_id,
+        player_count: 0,
+        capacity: capacity,
+        owner_conn_id: owner_conn_id,
+        started: false,
+        outdated: false,
+        abandoned_count: 0,
+        trust_toggle_count: 0,
+        rejected_count: 0,
+        last_state_code: 0,
+    }
+}
+
+def apply_room_module_start(state: RoomModuleRuntimeState) -> RoomModuleTransitionResult
+{
+    if !can_start_room(state.player_count, state.capacity, state.started, state.outdated) {
+        RoomModuleTransitionResult {
+            state: RoomModuleRuntimeState {
+                session_id: state.session_id,
+                player_count: state.player_count,
+                capacity: state.capacity,
+                owner_conn_id: state.owner_conn_id,
+                started: state.started,
+                outdated: state.outdated,
+                abandoned_count: state.abandoned_count,
+                trust_toggle_count: state.trust_toggle_count,
+                rejected_count: state.rejected_count + 1,
+                last_state_code: state.last_state_code,
+            },
+            applied: false,
+            reason_code: 9001,
+        }
+    } else {
+        RoomModuleTransitionResult {
+            state: RoomModuleRuntimeState {
+                session_id: state.session_id,
+                player_count: state.player_count,
+                capacity: state.capacity,
+                owner_conn_id: state.owner_conn_id,
+                started: true,
+                outdated: state.outdated,
+                abandoned_count: state.abandoned_count,
+                trust_toggle_count: state.trust_toggle_count,
+                rejected_count: state.rejected_count,
+                last_state_code: state.last_state_code,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_room_module_add_robot(
+    state: RoomModuleRuntimeState,
+    requester_conn_id: i64,
+) -> RoomModuleTransitionResult
+requires requester_conn_id >= 0
+{
+    if !can_add_robot(requester_conn_id, state.owner_conn_id, state.player_count, state.capacity) {
+        RoomModuleTransitionResult {
+            state: RoomModuleRuntimeState {
+                session_id: state.session_id,
+                player_count: state.player_count,
+                capacity: state.capacity,
+                owner_conn_id: state.owner_conn_id,
+                started: state.started,
+                outdated: state.outdated,
+                abandoned_count: state.abandoned_count,
+                trust_toggle_count: state.trust_toggle_count,
+                rejected_count: state.rejected_count + 1,
+                last_state_code: state.last_state_code,
+            },
+            applied: false,
+            reason_code: 9002,
+        }
+    } else {
+        RoomModuleTransitionResult {
+            state: RoomModuleRuntimeState {
+                session_id: state.session_id,
+                player_count: state.player_count + 1,
+                capacity: state.capacity,
+                owner_conn_id: state.owner_conn_id,
+                started: state.started,
+                outdated: state.outdated,
+                abandoned_count: state.abandoned_count,
+                trust_toggle_count: state.trust_toggle_count,
+                rejected_count: state.rejected_count,
+                last_state_code: state.last_state_code,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_room_module_mark_abandoned(
+    state: RoomModuleRuntimeState,
+    online_socket_count: i64,
+) -> RoomModuleTransitionResult
+requires online_socket_count >= 0
+{
+    let abandoned_reason = should_mark_room_abandoned_reason_code(state.player_count, online_socket_count);
+    if abandoned_reason == 0 {
+        RoomModuleTransitionResult {
+            state: RoomModuleRuntimeState {
+                session_id: state.session_id,
+                player_count: state.player_count,
+                capacity: state.capacity,
+                owner_conn_id: state.owner_conn_id,
+                started: state.started,
+                outdated: state.outdated,
+                abandoned_count: state.abandoned_count,
+                trust_toggle_count: state.trust_toggle_count,
+                rejected_count: state.rejected_count + 1,
+                last_state_code: state.last_state_code,
+            },
+            applied: false,
+            reason_code: 9003,
+        }
+    } else {
+        RoomModuleTransitionResult {
+            state: RoomModuleRuntimeState {
+                session_id: state.session_id,
+                player_count: state.player_count,
+                capacity: state.capacity,
+                owner_conn_id: state.owner_conn_id,
+                started: false,
+                outdated: true,
+                abandoned_count: state.abandoned_count + 1,
+                trust_toggle_count: state.trust_toggle_count,
+                rejected_count: state.rejected_count,
+                last_state_code: state.last_state_code,
+            },
+            applied: true,
+            reason_code: abandoned_reason,
+        }
+    }
+}
+
+def apply_room_module_toggle_trust(
+    state: RoomModuleRuntimeState,
+    current_state_code: i64,
+) -> RoomModuleTransitionResult
+requires current_state_code >= 0
+{
+    let trust_reason = should_toggle_trust_state_reason_code(state.started, current_state_code);
+    if trust_reason == 0 {
+        RoomModuleTransitionResult {
+            state: RoomModuleRuntimeState {
+                session_id: state.session_id,
+                player_count: state.player_count,
+                capacity: state.capacity,
+                owner_conn_id: state.owner_conn_id,
+                started: state.started,
+                outdated: state.outdated,
+                abandoned_count: state.abandoned_count,
+                trust_toggle_count: state.trust_toggle_count,
+                rejected_count: state.rejected_count + 1,
+                last_state_code: state.last_state_code,
+            },
+            applied: false,
+            reason_code: 9004,
+        }
+    } else {
+        RoomModuleTransitionResult {
+            state: RoomModuleRuntimeState {
+                session_id: state.session_id,
+                player_count: state.player_count,
+                capacity: state.capacity,
+                owner_conn_id: state.owner_conn_id,
+                started: state.started,
+                outdated: state.outdated,
+                abandoned_count: state.abandoned_count,
+                trust_toggle_count: state.trust_toggle_count + 1,
+                rejected_count: state.rejected_count,
+                last_state_code: current_state_code,
+            },
+            applied: true,
+            reason_code: trust_reason,
+        }
+    }
+}
+
+def apply_room_module_next_session(state: RoomModuleRuntimeState) -> RoomModuleTransitionResult
+{
+    RoomModuleTransitionResult {
+        state: RoomModuleRuntimeState {
+            session_id: next_room_session_id(state.session_id),
+            player_count: state.player_count,
+            capacity: state.capacity,
+            owner_conn_id: state.owner_conn_id,
+            started: false,
+            outdated: false,
+            abandoned_count: state.abandoned_count,
+            trust_toggle_count: state.trust_toggle_count,
+            rejected_count: state.rejected_count,
+            last_state_code: state.last_state_code,
+        },
+        applied: true,
+        reason_code: 0,
+    }
+}
+
+def can_room_module_accept_join(state: RoomModuleRuntimeState) -> bool
+{
+    state.player_count < state.capacity && !state.started && !state.outdated
+}
+
+def should_room_module_cleanup(state: RoomModuleRuntimeState) -> bool
+{
+    state.outdated && state.player_count == 0
+}

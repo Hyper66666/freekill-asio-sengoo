@@ -64,3 +64,163 @@ ensures result >= 0 && result <= 4
         0
     }
 }
+
+struct AdminShellRuntimeState {
+    command_count: i64,
+    dispatched_count: i64,
+    warn_count: i64,
+    crash_count: i64,
+    stop_count: i64,
+    temp_ban_second_total: i64,
+    last_completion_provider_id: i64,
+    rejected_command_count: i64,
+}
+
+struct AdminShellTransitionResult {
+    state: AdminShellRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_admin_shell_runtime_state() -> AdminShellRuntimeState
+{
+    AdminShellRuntimeState {
+        command_count: 0,
+        dispatched_count: 0,
+        warn_count: 0,
+        crash_count: 0,
+        stop_count: 0,
+        temp_ban_second_total: 0,
+        last_completion_provider_id: 0,
+        rejected_command_count: 0,
+    }
+}
+
+def apply_admin_shell_input(
+    state: AdminShellRuntimeState,
+    input_is_null: bool,
+    starts_with_quit: bool,
+    starts_with_crash: bool,
+    token_count: i64,
+    command_has_handler: bool,
+) -> AdminShellTransitionResult
+requires token_count >= 0
+{
+    let should_stop = should_stop_shell(input_is_null, starts_with_quit);
+    let should_crash = should_crash_shell(starts_with_crash);
+    let can_dispatch = can_dispatch_shell_command(token_count);
+    let should_warn = should_warn_unknown_shell_command(command_has_handler);
+    let next_stop = if should_stop { state.stop_count + 1 } else { state.stop_count };
+    let next_crash = if should_crash { state.crash_count + 1 } else { state.crash_count };
+    let next_dispatch = if can_dispatch { state.dispatched_count + 1 } else { state.dispatched_count };
+    let next_warn = if should_warn { state.warn_count + 1 } else { state.warn_count };
+    let next_rejected = if !can_dispatch { state.rejected_command_count + 1 } else { state.rejected_command_count };
+    let reason = if should_crash {
+        8902
+    } else if should_stop {
+        8903
+    } else if !can_dispatch {
+        8904
+    } else {
+        0
+    };
+
+    AdminShellTransitionResult {
+        state: AdminShellRuntimeState {
+            command_count: state.command_count + 1,
+            dispatched_count: next_dispatch,
+            warn_count: next_warn,
+            crash_count: next_crash,
+            stop_count: next_stop,
+            temp_ban_second_total: state.temp_ban_second_total,
+            last_completion_provider_id: state.last_completion_provider_id,
+            rejected_command_count: next_rejected,
+        },
+        applied: can_dispatch && !should_crash && !should_stop,
+        reason_code: reason,
+    }
+}
+
+def apply_admin_shell_temp_duration(
+    state: AdminShellRuntimeState,
+    value: i64,
+    unit_kind: i64,
+) -> AdminShellTransitionResult
+requires value >= 0
+{
+    if !has_valid_temp_duration(value, unit_kind) {
+        AdminShellTransitionResult {
+            state: AdminShellRuntimeState {
+                command_count: state.command_count,
+                dispatched_count: state.dispatched_count,
+                warn_count: state.warn_count,
+                crash_count: state.crash_count,
+                stop_count: state.stop_count,
+                temp_ban_second_total: state.temp_ban_second_total,
+                last_completion_provider_id: state.last_completion_provider_id,
+                rejected_command_count: state.rejected_command_count + 1,
+            },
+            applied: false,
+            reason_code: 8901,
+        }
+    } else {
+        AdminShellTransitionResult {
+            state: AdminShellRuntimeState {
+                command_count: state.command_count,
+                dispatched_count: state.dispatched_count,
+                warn_count: state.warn_count,
+                crash_count: state.crash_count,
+                stop_count: state.stop_count,
+                temp_ban_second_total: state.temp_ban_second_total + temp_duration_seconds(value, unit_kind),
+                last_completion_provider_id: state.last_completion_provider_id,
+                rejected_command_count: state.rejected_command_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_admin_shell_completion(
+    state: AdminShellRuntimeState,
+    command_arg_count: i64,
+    is_install_command: bool,
+    is_package_command: bool,
+    is_ban_like_command: bool,
+    is_unban_like_command: bool,
+) -> AdminShellTransitionResult
+requires command_arg_count >= 0
+{
+    let provider_id = completion_provider_id(
+        command_arg_count,
+        is_install_command,
+        is_package_command,
+        is_ban_like_command,
+        is_unban_like_command,
+    );
+    AdminShellTransitionResult {
+        state: AdminShellRuntimeState {
+            command_count: state.command_count,
+            dispatched_count: state.dispatched_count,
+            warn_count: state.warn_count,
+            crash_count: state.crash_count,
+            stop_count: state.stop_count,
+            temp_ban_second_total: state.temp_ban_second_total,
+            last_completion_provider_id: provider_id,
+            rejected_command_count: state.rejected_command_count,
+        },
+        applied: true,
+        reason_code: 0,
+    }
+}
+
+def should_admin_shell_alert(state: AdminShellRuntimeState, max_rejected_count: i64) -> bool
+requires max_rejected_count >= 0
+{
+    state.crash_count > 0 || state.rejected_command_count >= max_rejected_count
+}
+
+def can_admin_shell_continue(state: AdminShellRuntimeState) -> bool
+{
+    state.stop_count == 0 && state.crash_count == 0
+}

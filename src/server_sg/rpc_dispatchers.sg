@@ -43,3 +43,302 @@ ensures result == 39
 {
     39
 }
+
+struct RpcDispatchRuntimeState {
+    dispatch_count: i64,
+    rejected_signature_count: i64,
+    rejected_delay_count: i64,
+    not_found_count: i64,
+    owner_missing_count: i64,
+    async_wakeup_count: i64,
+    async_ack_count: i64,
+    serialized_player_count: i64,
+    serialized_room_count: i64,
+    rejected_count: i64,
+    last_catalog_size: i64,
+    last_room_id: i64,
+}
+
+struct RpcDispatchTransitionResult {
+    state: RpcDispatchRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_rpc_dispatch_runtime_state() -> RpcDispatchRuntimeState
+{
+    RpcDispatchRuntimeState {
+        dispatch_count: 0,
+        rejected_signature_count: 0,
+        rejected_delay_count: 0,
+        not_found_count: 0,
+        owner_missing_count: 0,
+        async_wakeup_count: 0,
+        async_ack_count: 0,
+        serialized_player_count: 0,
+        serialized_room_count: 0,
+        rejected_count: 0,
+        last_catalog_size: rpc_server_method_catalog_size(),
+        last_room_id: 0,
+    }
+}
+
+def apply_rpc_dispatch_signature(
+    state: RpcDispatchRuntimeState,
+    param_count_matches: bool,
+    param_types_match: bool,
+) -> RpcDispatchTransitionResult
+{
+    if !is_rpc_signature_valid(param_count_matches, param_types_match) {
+        RpcDispatchTransitionResult {
+            state: RpcDispatchRuntimeState {
+                dispatch_count: state.dispatch_count,
+                rejected_signature_count: state.rejected_signature_count + 1,
+                rejected_delay_count: state.rejected_delay_count,
+                not_found_count: state.not_found_count,
+                owner_missing_count: state.owner_missing_count,
+                async_wakeup_count: state.async_wakeup_count,
+                async_ack_count: state.async_ack_count,
+                serialized_player_count: state.serialized_player_count,
+                serialized_room_count: state.serialized_room_count,
+                rejected_count: state.rejected_count + 1,
+                last_catalog_size: rpc_server_method_catalog_size(),
+                last_room_id: state.last_room_id,
+            },
+            applied: false,
+            reason_code: 9301,
+        }
+    } else {
+        RpcDispatchTransitionResult {
+            state: RpcDispatchRuntimeState {
+                dispatch_count: state.dispatch_count + 1,
+                rejected_signature_count: state.rejected_signature_count,
+                rejected_delay_count: state.rejected_delay_count,
+                not_found_count: state.not_found_count,
+                owner_missing_count: state.owner_missing_count,
+                async_wakeup_count: state.async_wakeup_count,
+                async_ack_count: state.async_ack_count,
+                serialized_player_count: state.serialized_player_count,
+                serialized_room_count: state.serialized_room_count,
+                rejected_count: state.rejected_count,
+                last_catalog_size: rpc_server_method_catalog_size(),
+                last_room_id: state.last_room_id,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_rpc_dispatch_delay(
+    state: RpcDispatchRuntimeState,
+    delay_ms: i64,
+) -> RpcDispatchTransitionResult
+{
+    if should_reject_non_positive_delay(delay_ms) {
+        RpcDispatchTransitionResult {
+            state: RpcDispatchRuntimeState {
+                dispatch_count: state.dispatch_count,
+                rejected_signature_count: state.rejected_signature_count,
+                rejected_delay_count: state.rejected_delay_count + 1,
+                not_found_count: state.not_found_count,
+                owner_missing_count: state.owner_missing_count,
+                async_wakeup_count: state.async_wakeup_count,
+                async_ack_count: state.async_ack_count,
+                serialized_player_count: state.serialized_player_count,
+                serialized_room_count: state.serialized_room_count,
+                rejected_count: state.rejected_count + 1,
+                last_catalog_size: rpc_server_method_catalog_size(),
+                last_room_id: state.last_room_id,
+            },
+            applied: false,
+            reason_code: 9302,
+        }
+    } else {
+        RpcDispatchTransitionResult {
+            state: state,
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_rpc_dispatch_entity_checks(
+    state: RpcDispatchRuntimeState,
+    entity_exists: bool,
+    owner_exists: bool,
+) -> RpcDispatchTransitionResult
+{
+    if should_return_not_found(entity_exists) {
+        RpcDispatchTransitionResult {
+            state: RpcDispatchRuntimeState {
+                dispatch_count: state.dispatch_count,
+                rejected_signature_count: state.rejected_signature_count,
+                rejected_delay_count: state.rejected_delay_count,
+                not_found_count: state.not_found_count + 1,
+                owner_missing_count: state.owner_missing_count,
+                async_wakeup_count: state.async_wakeup_count,
+                async_ack_count: state.async_ack_count,
+                serialized_player_count: state.serialized_player_count,
+                serialized_room_count: state.serialized_room_count,
+                rejected_count: state.rejected_count + 1,
+                last_catalog_size: rpc_server_method_catalog_size(),
+                last_room_id: state.last_room_id,
+            },
+            applied: false,
+            reason_code: 9303,
+        }
+    } else if should_short_circuit_when_owner_missing(owner_exists) {
+        RpcDispatchTransitionResult {
+            state: RpcDispatchRuntimeState {
+                dispatch_count: state.dispatch_count,
+                rejected_signature_count: state.rejected_signature_count,
+                rejected_delay_count: state.rejected_delay_count,
+                not_found_count: state.not_found_count,
+                owner_missing_count: state.owner_missing_count + 1,
+                async_wakeup_count: state.async_wakeup_count,
+                async_ack_count: state.async_ack_count,
+                serialized_player_count: state.serialized_player_count,
+                serialized_room_count: state.serialized_room_count,
+                rejected_count: state.rejected_count + 1,
+                last_catalog_size: rpc_server_method_catalog_size(),
+                last_room_id: state.last_room_id,
+            },
+            applied: false,
+            reason_code: 9304,
+        }
+    } else {
+        RpcDispatchTransitionResult {
+            state: RpcDispatchRuntimeState {
+                dispatch_count: state.dispatch_count + 1,
+                rejected_signature_count: state.rejected_signature_count,
+                rejected_delay_count: state.rejected_delay_count,
+                not_found_count: state.not_found_count,
+                owner_missing_count: state.owner_missing_count,
+                async_wakeup_count: state.async_wakeup_count,
+                async_ack_count: state.async_ack_count,
+                serialized_player_count: state.serialized_player_count,
+                serialized_room_count: state.serialized_room_count,
+                rejected_count: state.rejected_count,
+                last_catalog_size: rpc_server_method_catalog_size(),
+                last_room_id: state.last_room_id,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_rpc_dispatch_async(
+    state: RpcDispatchRuntimeState,
+    async_scheduled: bool,
+    thread_exists: bool,
+) -> RpcDispatchTransitionResult
+{
+    if !async_scheduled {
+        RpcDispatchTransitionResult {
+            state: RpcDispatchRuntimeState {
+                dispatch_count: state.dispatch_count,
+                rejected_signature_count: state.rejected_signature_count,
+                rejected_delay_count: state.rejected_delay_count,
+                not_found_count: state.not_found_count,
+                owner_missing_count: state.owner_missing_count,
+                async_wakeup_count: state.async_wakeup_count,
+                async_ack_count: state.async_ack_count,
+                serialized_player_count: state.serialized_player_count,
+                serialized_room_count: state.serialized_room_count,
+                rejected_count: state.rejected_count + 1,
+                last_catalog_size: rpc_server_method_catalog_size(),
+                last_room_id: state.last_room_id,
+            },
+            applied: false,
+            reason_code: 9305,
+        }
+    } else {
+        let wakeup = should_emit_async_wakeup(async_scheduled, thread_exists);
+        let ack = should_return_async_ack(async_scheduled);
+        let next_wakeup = if wakeup { state.async_wakeup_count + 1 } else { state.async_wakeup_count };
+        let next_ack = if ack { state.async_ack_count + 1 } else { state.async_ack_count };
+        RpcDispatchTransitionResult {
+            state: RpcDispatchRuntimeState {
+                dispatch_count: state.dispatch_count + 1,
+                rejected_signature_count: state.rejected_signature_count,
+                rejected_delay_count: state.rejected_delay_count,
+                not_found_count: state.not_found_count,
+                owner_missing_count: state.owner_missing_count,
+                async_wakeup_count: next_wakeup,
+                async_ack_count: next_ack,
+                serialized_player_count: state.serialized_player_count,
+                serialized_room_count: state.serialized_room_count,
+                rejected_count: state.rejected_count,
+                last_catalog_size: rpc_server_method_catalog_size(),
+                last_room_id: state.last_room_id,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_rpc_dispatch_snapshot(
+    state: RpcDispatchRuntimeState,
+    player_exists: bool,
+    room_id: i64,
+    room_exists: bool,
+) -> RpcDispatchTransitionResult
+{
+    let can_player = can_serialize_player_snapshot(player_exists);
+    let can_room = can_serialize_room_snapshot(room_id, room_exists);
+    if !can_player && !can_room {
+        RpcDispatchTransitionResult {
+            state: RpcDispatchRuntimeState {
+                dispatch_count: state.dispatch_count,
+                rejected_signature_count: state.rejected_signature_count,
+                rejected_delay_count: state.rejected_delay_count,
+                not_found_count: state.not_found_count,
+                owner_missing_count: state.owner_missing_count,
+                async_wakeup_count: state.async_wakeup_count,
+                async_ack_count: state.async_ack_count,
+                serialized_player_count: state.serialized_player_count,
+                serialized_room_count: state.serialized_room_count,
+                rejected_count: state.rejected_count + 1,
+                last_catalog_size: rpc_server_method_catalog_size(),
+                last_room_id: room_id,
+            },
+            applied: false,
+            reason_code: 9306,
+        }
+    } else {
+        let next_player = if can_player { state.serialized_player_count + 1 } else { state.serialized_player_count };
+        let next_room = if can_room { state.serialized_room_count + 1 } else { state.serialized_room_count };
+        RpcDispatchTransitionResult {
+            state: RpcDispatchRuntimeState {
+                dispatch_count: state.dispatch_count + 1,
+                rejected_signature_count: state.rejected_signature_count,
+                rejected_delay_count: state.rejected_delay_count,
+                not_found_count: state.not_found_count,
+                owner_missing_count: state.owner_missing_count,
+                async_wakeup_count: state.async_wakeup_count,
+                async_ack_count: state.async_ack_count,
+                serialized_player_count: next_player,
+                serialized_room_count: next_room,
+                rejected_count: state.rejected_count,
+                last_catalog_size: rpc_server_method_catalog_size(),
+                last_room_id: room_id,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def should_rpc_dispatch_backpressure(state: RpcDispatchRuntimeState, max_rejected_count: i64) -> bool
+requires max_rejected_count >= 0
+{
+    state.rejected_count >= max_rejected_count
+}
+
+def can_rpc_dispatch_run(state: RpcDispatchRuntimeState) -> bool
+{
+    state.last_catalog_size == rpc_server_method_catalog_size()
+}

@@ -39,3 +39,210 @@ ensures result <= -1
         candidate
     }
 }
+
+struct UserManagerRuntimeState {
+    online_count: i64,
+    tracked_player_count: i64,
+    robot_player_count: i64,
+    rejected_connection_count: i64,
+    broadcast_login_count: i64,
+    last_player_id: i64,
+    last_robot_id: i64,
+    capacity: i64,
+}
+
+struct UserManagerTransitionResult {
+    state: UserManagerRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_user_manager_runtime_state(capacity: i64, start_robot_id: i64) -> UserManagerRuntimeState
+requires capacity >= 0 && start_robot_id <= -1
+{
+    UserManagerRuntimeState {
+        online_count: 0,
+        tracked_player_count: 0,
+        robot_player_count: 0,
+        rejected_connection_count: 0,
+        broadcast_login_count: 0,
+        last_player_id: 0,
+        last_robot_id: start_robot_id,
+        capacity: capacity,
+    }
+}
+
+def apply_user_manager_accept_connection(
+    state: UserManagerRuntimeState,
+    ip_banned: bool,
+    uuid_banned: bool,
+    temp_banned: bool,
+    player_id: i64,
+) -> UserManagerTransitionResult
+{
+    if can_accept_new_connection(
+        ip_banned,
+        uuid_banned,
+        temp_banned,
+        state.online_count,
+        state.capacity
+    ) {
+        let next_online_count = state.online_count + 1;
+        let next_tracked_count = if can_track_online_player(player_id) {
+            state.tracked_player_count + 1
+        } else {
+            state.tracked_player_count
+        };
+        let next_broadcast_count = if should_broadcast_login_message(next_online_count) {
+            state.broadcast_login_count + 1
+        } else {
+            state.broadcast_login_count
+        };
+        UserManagerTransitionResult {
+            state: UserManagerRuntimeState {
+                online_count: next_online_count,
+                tracked_player_count: next_tracked_count,
+                robot_player_count: state.robot_player_count,
+                rejected_connection_count: state.rejected_connection_count,
+                broadcast_login_count: next_broadcast_count,
+                last_player_id: player_id,
+                last_robot_id: state.last_robot_id,
+                capacity: state.capacity,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        let reject_code = if ip_banned || uuid_banned || temp_banned {
+            8601
+        } else {
+            8602
+        };
+        UserManagerTransitionResult {
+            state: UserManagerRuntimeState {
+                online_count: state.online_count,
+                tracked_player_count: state.tracked_player_count,
+                robot_player_count: state.robot_player_count,
+                rejected_connection_count: state.rejected_connection_count + 1,
+                broadcast_login_count: state.broadcast_login_count,
+                last_player_id: state.last_player_id,
+                last_robot_id: state.last_robot_id,
+                capacity: state.capacity,
+            },
+            applied: false,
+            reason_code: reject_code,
+        }
+    }
+}
+
+def apply_user_manager_disconnect(
+    state: UserManagerRuntimeState,
+    player_id: i64,
+) -> UserManagerTransitionResult
+{
+    if state.online_count == 0 {
+        UserManagerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8603,
+        }
+    } else {
+        let next_tracked_count = if can_track_online_player(player_id) && state.tracked_player_count > 0 {
+            state.tracked_player_count - 1
+        } else {
+            state.tracked_player_count
+        };
+        UserManagerTransitionResult {
+            state: UserManagerRuntimeState {
+                online_count: state.online_count - 1,
+                tracked_player_count: next_tracked_count,
+                robot_player_count: state.robot_player_count,
+                rejected_connection_count: state.rejected_connection_count,
+                broadcast_login_count: state.broadcast_login_count,
+                last_player_id: player_id,
+                last_robot_id: state.last_robot_id,
+                capacity: state.capacity,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_user_manager_spawn_robot(state: UserManagerRuntimeState) -> UserManagerTransitionResult
+{
+    let robot_id = next_robot_id(state.last_robot_id);
+    if !is_robot_player_id(robot_id) {
+        UserManagerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8604,
+        }
+    } else {
+        UserManagerTransitionResult {
+            state: UserManagerRuntimeState {
+                online_count: state.online_count + 1,
+                tracked_player_count: state.tracked_player_count,
+                robot_player_count: state.robot_player_count + 1,
+                rejected_connection_count: state.rejected_connection_count,
+                broadcast_login_count: state.broadcast_login_count,
+                last_player_id: robot_id,
+                last_robot_id: robot_id,
+                capacity: state.capacity,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_user_manager_remove_robot(
+    state: UserManagerRuntimeState,
+    robot_id: i64,
+) -> UserManagerTransitionResult
+{
+    if !is_robot_player_id(robot_id) {
+        UserManagerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8605,
+        }
+    } else if state.robot_player_count == 0 {
+        UserManagerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8606,
+        }
+    } else {
+        let next_online_count = if state.online_count > 0 {
+            state.online_count - 1
+        } else {
+            0
+        };
+        UserManagerTransitionResult {
+            state: UserManagerRuntimeState {
+                online_count: next_online_count,
+                tracked_player_count: state.tracked_player_count,
+                robot_player_count: state.robot_player_count - 1,
+                rejected_connection_count: state.rejected_connection_count,
+                broadcast_login_count: state.broadcast_login_count,
+                last_player_id: robot_id,
+                last_robot_id: state.last_robot_id,
+                capacity: state.capacity,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def can_user_manager_admit_more(state: UserManagerRuntimeState) -> bool
+{
+    state.online_count < state.capacity
+}
+
+def should_user_manager_shed_load(state: UserManagerRuntimeState, high_watermark: i64) -> bool
+requires high_watermark >= 0
+{
+    state.online_count >= high_watermark
+}

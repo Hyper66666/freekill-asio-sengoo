@@ -25,3 +25,186 @@ ensures result > current_next_thread_id
 {
     current_next_thread_id + 1
 }
+
+struct RoomthreadRuntimeState {
+    thread_id: i64,
+    capacity: i64,
+    ref_count: i64,
+    outdated: bool,
+    emitted_signal_count: i64,
+    removed_thread_count: i64,
+    rejected_count: i64,
+}
+
+struct RoomthreadTransitionResult {
+    state: RoomthreadRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_roomthread_runtime_state(capacity: i64, thread_id: i64) -> RoomthreadRuntimeState
+requires capacity >= 0 && thread_id >= 0
+{
+    RoomthreadRuntimeState {
+        thread_id: thread_id,
+        capacity: capacity,
+        ref_count: 0,
+        outdated: false,
+        emitted_signal_count: 0,
+        removed_thread_count: 0,
+        rejected_count: 0,
+    }
+}
+
+def apply_roomthread_emit_signal(
+    state: RoomthreadRuntimeState,
+    lua_alive: bool,
+) -> RoomthreadTransitionResult
+{
+    if !can_emit_signal(lua_alive) {
+        RoomthreadTransitionResult {
+            state: RoomthreadRuntimeState {
+                thread_id: state.thread_id,
+                capacity: state.capacity,
+                ref_count: state.ref_count,
+                outdated: state.outdated,
+                emitted_signal_count: state.emitted_signal_count,
+                removed_thread_count: state.removed_thread_count,
+                rejected_count: state.rejected_count + 1,
+            },
+            applied: false,
+            reason_code: 9201,
+        }
+    } else {
+        RoomthreadTransitionResult {
+            state: RoomthreadRuntimeState {
+                thread_id: state.thread_id,
+                capacity: state.capacity,
+                ref_count: state.ref_count,
+                outdated: state.outdated,
+                emitted_signal_count: state.emitted_signal_count + 1,
+                removed_thread_count: state.removed_thread_count,
+                rejected_count: state.rejected_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_roomthread_increase_ref(
+    state: RoomthreadRuntimeState,
+    thread_md5_matches_server: bool,
+) -> RoomthreadTransitionResult
+{
+    if is_thread_full(state.capacity, state.ref_count) {
+        RoomthreadTransitionResult {
+            state: RoomthreadRuntimeState {
+                thread_id: state.thread_id,
+                capacity: state.capacity,
+                ref_count: state.ref_count,
+                outdated: state.outdated,
+                emitted_signal_count: state.emitted_signal_count,
+                removed_thread_count: state.removed_thread_count,
+                rejected_count: state.rejected_count + 1,
+            },
+            applied: false,
+            reason_code: 9202,
+        }
+    } else if is_thread_outdated(thread_md5_matches_server) {
+        RoomthreadTransitionResult {
+            state: RoomthreadRuntimeState {
+                thread_id: state.thread_id,
+                capacity: state.capacity,
+                ref_count: state.ref_count,
+                outdated: true,
+                emitted_signal_count: state.emitted_signal_count,
+                removed_thread_count: state.removed_thread_count,
+                rejected_count: state.rejected_count + 1,
+            },
+            applied: false,
+            reason_code: 9203,
+        }
+    } else {
+        RoomthreadTransitionResult {
+            state: RoomthreadRuntimeState {
+                thread_id: state.thread_id,
+                capacity: state.capacity,
+                ref_count: state.ref_count + 1,
+                outdated: state.outdated,
+                emitted_signal_count: state.emitted_signal_count,
+                removed_thread_count: state.removed_thread_count,
+                rejected_count: state.rejected_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_roomthread_decrease_ref(state: RoomthreadRuntimeState) -> RoomthreadTransitionResult
+{
+    if state.ref_count == 0 {
+        RoomthreadTransitionResult {
+            state: RoomthreadRuntimeState {
+                thread_id: state.thread_id,
+                capacity: state.capacity,
+                ref_count: state.ref_count,
+                outdated: state.outdated,
+                emitted_signal_count: state.emitted_signal_count,
+                removed_thread_count: state.removed_thread_count,
+                rejected_count: state.rejected_count + 1,
+            },
+            applied: false,
+            reason_code: 9204,
+        }
+    } else {
+        let next_ref_count = state.ref_count - 1;
+        let remove_thread = should_remove_thread_after_decrease(next_ref_count, state.outdated);
+        let next_removed = if remove_thread {
+            state.removed_thread_count + 1
+        } else {
+            state.removed_thread_count
+        };
+        RoomthreadTransitionResult {
+            state: RoomthreadRuntimeState {
+                thread_id: state.thread_id,
+                capacity: state.capacity,
+                ref_count: next_ref_count,
+                outdated: state.outdated,
+                emitted_signal_count: state.emitted_signal_count,
+                removed_thread_count: next_removed,
+                rejected_count: state.rejected_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_roomthread_next_id(state: RoomthreadRuntimeState) -> RoomthreadTransitionResult
+{
+    RoomthreadTransitionResult {
+        state: RoomthreadRuntimeState {
+            thread_id: next_thread_id(state.thread_id),
+            capacity: state.capacity,
+            ref_count: state.ref_count,
+            outdated: state.outdated,
+            emitted_signal_count: state.emitted_signal_count,
+            removed_thread_count: state.removed_thread_count,
+            rejected_count: state.rejected_count,
+        },
+        applied: true,
+        reason_code: 0,
+    }
+}
+
+def should_roomthread_collect(state: RoomthreadRuntimeState) -> bool
+{
+    state.removed_thread_count > 0 && state.ref_count == 0
+}
+
+def can_roomthread_accept_more(state: RoomthreadRuntimeState) -> bool
+{
+    !is_thread_full(state.capacity, state.ref_count)
+}

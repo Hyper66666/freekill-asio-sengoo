@@ -96,3 +96,299 @@ def should_convert_handler_failure_to_invalid_params(handler_success: bool) -> b
 {
     should_convert_handler_failure_reason_code(handler_success) != 0
 }
+
+struct JsonrpcRuntimeState {
+    next_request_id: i64,
+    notification_count: i64,
+    allocated_request_count: i64,
+    error_copy_count: i64,
+    empty_method_reject_count: i64,
+    method_not_found_count: i64,
+    handler_failure_count: i64,
+    rejected_count: i64,
+    last_error_code: i64,
+    last_request_id: i64,
+}
+
+struct JsonrpcTransitionResult {
+    state: JsonrpcRuntimeState,
+    applied: bool,
+    reason_code: i64,
+    allocated_request_id: i64,
+    notification_params: i64,
+}
+
+def new_jsonrpc_runtime_state(start_request_id: i64) -> JsonrpcRuntimeState
+requires start_request_id >= 1 && start_request_id <= 10000000
+{
+    JsonrpcRuntimeState {
+        next_request_id: start_request_id,
+        notification_count: 0,
+        allocated_request_count: 0,
+        error_copy_count: 0,
+        empty_method_reject_count: 0,
+        method_not_found_count: 0,
+        handler_failure_count: 0,
+        rejected_count: 0,
+        last_error_code: 0,
+        last_request_id: 0,
+    }
+}
+
+def apply_jsonrpc_allocate_request_id(
+    state: JsonrpcRuntimeState,
+    requested_id: i64,
+) -> JsonrpcTransitionResult
+{
+    if should_allocate_request_id(requested_id) {
+        let allocated_id = state.next_request_id;
+        JsonrpcTransitionResult {
+            state: JsonrpcRuntimeState {
+                next_request_id: next_request_id_counter(state.next_request_id),
+                notification_count: state.notification_count,
+                allocated_request_count: state.allocated_request_count + 1,
+                error_copy_count: state.error_copy_count,
+                empty_method_reject_count: state.empty_method_reject_count,
+                method_not_found_count: state.method_not_found_count,
+                handler_failure_count: state.handler_failure_count,
+                rejected_count: state.rejected_count,
+                last_error_code: state.last_error_code,
+                last_request_id: allocated_id,
+            },
+            applied: true,
+            reason_code: 0,
+            allocated_request_id: allocated_id,
+            notification_params: 0,
+        }
+    } else if is_notification_request(requested_id) {
+        JsonrpcTransitionResult {
+            state: JsonrpcRuntimeState {
+                next_request_id: state.next_request_id,
+                notification_count: state.notification_count,
+                allocated_request_count: state.allocated_request_count,
+                error_copy_count: state.error_copy_count,
+                empty_method_reject_count: state.empty_method_reject_count,
+                method_not_found_count: state.method_not_found_count,
+                handler_failure_count: state.handler_failure_count,
+                rejected_count: state.rejected_count + 1,
+                last_error_code: state.last_error_code,
+                last_request_id: requested_id,
+            },
+            applied: false,
+            reason_code: 8801,
+            allocated_request_id: -1,
+            notification_params: 0,
+        }
+    } else {
+        JsonrpcTransitionResult {
+            state: JsonrpcRuntimeState {
+                next_request_id: state.next_request_id,
+                notification_count: state.notification_count,
+                allocated_request_count: state.allocated_request_count,
+                error_copy_count: state.error_copy_count,
+                empty_method_reject_count: state.empty_method_reject_count,
+                method_not_found_count: state.method_not_found_count,
+                handler_failure_count: state.handler_failure_count,
+                rejected_count: state.rejected_count,
+                last_error_code: state.last_error_code,
+                last_request_id: requested_id,
+            },
+            applied: true,
+            reason_code: 0,
+            allocated_request_id: requested_id,
+            notification_params: 0,
+        }
+    }
+}
+
+def apply_jsonrpc_notification(
+    state: JsonrpcRuntimeState,
+    request_id: i64,
+    param1_present: bool,
+    param2_present: bool,
+    param3_present: bool,
+) -> JsonrpcTransitionResult
+{
+    if !is_notification_request(request_id) {
+        JsonrpcTransitionResult {
+            state: JsonrpcRuntimeState {
+                next_request_id: state.next_request_id,
+                notification_count: state.notification_count,
+                allocated_request_count: state.allocated_request_count,
+                error_copy_count: state.error_copy_count,
+                empty_method_reject_count: state.empty_method_reject_count,
+                method_not_found_count: state.method_not_found_count,
+                handler_failure_count: state.handler_failure_count,
+                rejected_count: state.rejected_count + 1,
+                last_error_code: state.last_error_code,
+                last_request_id: request_id,
+            },
+            applied: false,
+            reason_code: 8802,
+            allocated_request_id: -1,
+            notification_params: 0,
+        }
+    } else {
+        let param_count = notification_param_count(param1_present, param2_present, param3_present);
+        JsonrpcTransitionResult {
+            state: JsonrpcRuntimeState {
+                next_request_id: state.next_request_id,
+                notification_count: state.notification_count + 1,
+                allocated_request_count: state.allocated_request_count,
+                error_copy_count: state.error_copy_count,
+                empty_method_reject_count: state.empty_method_reject_count,
+                method_not_found_count: state.method_not_found_count,
+                handler_failure_count: state.handler_failure_count,
+                rejected_count: state.rejected_count,
+                last_error_code: state.last_error_code,
+                last_request_id: request_id,
+            },
+            applied: true,
+            reason_code: 0,
+            allocated_request_id: -1,
+            notification_params: param_count,
+        }
+    }
+}
+
+def apply_jsonrpc_error_copy(
+    state: JsonrpcRuntimeState,
+    error_code: i64,
+    request_id: i64,
+) -> JsonrpcTransitionResult
+{
+    let reason = copy_error_response_id_reason_code(error_code, request_id);
+    if reason == 0 {
+        JsonrpcTransitionResult {
+            state: JsonrpcRuntimeState {
+                next_request_id: state.next_request_id,
+                notification_count: state.notification_count,
+                allocated_request_count: state.allocated_request_count,
+                error_copy_count: state.error_copy_count + 1,
+                empty_method_reject_count: state.empty_method_reject_count,
+                method_not_found_count: state.method_not_found_count,
+                handler_failure_count: state.handler_failure_count,
+                rejected_count: state.rejected_count,
+                last_error_code: error_code,
+                last_request_id: request_id,
+            },
+            applied: true,
+            reason_code: 0,
+            allocated_request_id: request_id,
+            notification_params: 0,
+        }
+    } else {
+        JsonrpcTransitionResult {
+            state: JsonrpcRuntimeState {
+                next_request_id: state.next_request_id,
+                notification_count: state.notification_count,
+                allocated_request_count: state.allocated_request_count,
+                error_copy_count: state.error_copy_count,
+                empty_method_reject_count: state.empty_method_reject_count,
+                method_not_found_count: state.method_not_found_count,
+                handler_failure_count: state.handler_failure_count,
+                rejected_count: state.rejected_count + 1,
+                last_error_code: error_code,
+                last_request_id: request_id,
+            },
+            applied: false,
+            reason_code: reason,
+            allocated_request_id: -1,
+            notification_params: 0,
+        }
+    }
+}
+
+def apply_jsonrpc_method_checks(
+    state: JsonrpcRuntimeState,
+    method_is_empty: bool,
+    method_exists: bool,
+    handler_success: bool,
+) -> JsonrpcTransitionResult
+{
+    let empty_reason = should_reject_empty_method_reason_code(method_is_empty);
+    if empty_reason != 0 {
+        JsonrpcTransitionResult {
+            state: JsonrpcRuntimeState {
+                next_request_id: state.next_request_id,
+                notification_count: state.notification_count,
+                allocated_request_count: state.allocated_request_count,
+                error_copy_count: state.error_copy_count,
+                empty_method_reject_count: state.empty_method_reject_count + 1,
+                method_not_found_count: state.method_not_found_count,
+                handler_failure_count: state.handler_failure_count,
+                rejected_count: state.rejected_count + 1,
+                last_error_code: empty_reason,
+                last_request_id: state.last_request_id,
+            },
+            applied: false,
+            reason_code: empty_reason,
+            allocated_request_id: -1,
+            notification_params: 0,
+        }
+    } else {
+        let not_found_reason = should_report_method_not_found_reason_code(method_exists);
+        if not_found_reason != 0 {
+            JsonrpcTransitionResult {
+                state: JsonrpcRuntimeState {
+                    next_request_id: state.next_request_id,
+                    notification_count: state.notification_count,
+                    allocated_request_count: state.allocated_request_count,
+                    error_copy_count: state.error_copy_count,
+                    empty_method_reject_count: state.empty_method_reject_count,
+                    method_not_found_count: state.method_not_found_count + 1,
+                    handler_failure_count: state.handler_failure_count,
+                    rejected_count: state.rejected_count + 1,
+                    last_error_code: not_found_reason,
+                    last_request_id: state.last_request_id,
+                },
+                applied: false,
+                reason_code: not_found_reason,
+                allocated_request_id: -1,
+                notification_params: 0,
+            }
+        } else {
+            let handler_reason = should_convert_handler_failure_reason_code(handler_success);
+            if handler_reason != 0 {
+                JsonrpcTransitionResult {
+                    state: JsonrpcRuntimeState {
+                        next_request_id: state.next_request_id,
+                        notification_count: state.notification_count,
+                        allocated_request_count: state.allocated_request_count,
+                        error_copy_count: state.error_copy_count,
+                        empty_method_reject_count: state.empty_method_reject_count,
+                        method_not_found_count: state.method_not_found_count,
+                        handler_failure_count: state.handler_failure_count + 1,
+                        rejected_count: state.rejected_count + 1,
+                        last_error_code: handler_reason,
+                        last_request_id: state.last_request_id,
+                    },
+                    applied: false,
+                    reason_code: handler_reason,
+                    allocated_request_id: -1,
+                    notification_params: 0,
+                }
+            } else {
+                JsonrpcTransitionResult {
+                    state: state,
+                    applied: true,
+                    reason_code: 0,
+                    allocated_request_id: -1,
+                    notification_params: 0,
+                }
+            }
+        }
+    }
+}
+
+def should_jsonrpc_backpressure(state: JsonrpcRuntimeState, max_rejected_count: i64) -> bool
+requires max_rejected_count >= 0
+{
+    state.rejected_count >= max_rejected_count
+}
+
+def can_jsonrpc_reuse_request_id(state: JsonrpcRuntimeState, request_id: i64) -> bool
+requires request_id >= -1
+{
+    request_id > 0 && request_id <= state.next_request_id
+}

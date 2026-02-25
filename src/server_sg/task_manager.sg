@@ -59,3 +59,235 @@ def can_lookup_task_by_request_id(mapping_exists: bool, task_exists: bool) -> bo
 {
     mapping_exists && task_exists
 }
+
+struct TaskManagerRuntimeState {
+    attached_task_count: i64,
+    request_mapping_count: i64,
+    rejected_operation_count: i64,
+    rebind_conflict_count: i64,
+    user_bucket_remove_count: i64,
+    last_conn_id: i64,
+    last_req_id: i64,
+    last_task_id: i64,
+}
+
+struct TaskManagerTransitionResult {
+    state: TaskManagerRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_task_manager_runtime_state() -> TaskManagerRuntimeState
+{
+    TaskManagerRuntimeState {
+        attached_task_count: 0,
+        request_mapping_count: 0,
+        rejected_operation_count: 0,
+        rebind_conflict_count: 0,
+        user_bucket_remove_count: 0,
+        last_conn_id: 0,
+        last_req_id: 0,
+        last_task_id: -1,
+    }
+}
+
+def apply_task_manager_attach(
+    state: TaskManagerRuntimeState,
+    task_exists: bool,
+    conn_id: i64,
+    task_id: i64,
+) -> TaskManagerTransitionResult
+requires conn_id >= 0
+{
+    if can_attach_task_to_user(task_exists, conn_id) {
+        TaskManagerTransitionResult {
+            state: TaskManagerRuntimeState {
+                attached_task_count: state.attached_task_count + 1,
+                request_mapping_count: state.request_mapping_count,
+                rejected_operation_count: state.rejected_operation_count,
+                rebind_conflict_count: state.rebind_conflict_count,
+                user_bucket_remove_count: state.user_bucket_remove_count,
+                last_conn_id: conn_id,
+                last_req_id: state.last_req_id,
+                last_task_id: task_id,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        TaskManagerTransitionResult {
+            state: TaskManagerRuntimeState {
+                attached_task_count: state.attached_task_count,
+                request_mapping_count: state.request_mapping_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                rebind_conflict_count: state.rebind_conflict_count,
+                user_bucket_remove_count: state.user_bucket_remove_count,
+                last_conn_id: state.last_conn_id,
+                last_req_id: state.last_req_id,
+                last_task_id: state.last_task_id,
+            },
+            applied: false,
+            reason_code: 8501,
+        }
+    }
+}
+
+def apply_task_manager_rebind(
+    state: TaskManagerRuntimeState,
+    old_conn_id: i64,
+    new_conn_id: i64,
+) -> TaskManagerTransitionResult
+requires old_conn_id >= 0 && new_conn_id >= 0
+{
+    let reject_code = should_reject_task_rebind_reason_code(old_conn_id, new_conn_id);
+    if reject_code != 0 {
+        TaskManagerTransitionResult {
+            state: TaskManagerRuntimeState {
+                attached_task_count: state.attached_task_count,
+                request_mapping_count: state.request_mapping_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                rebind_conflict_count: state.rebind_conflict_count + 1,
+                user_bucket_remove_count: state.user_bucket_remove_count,
+                last_conn_id: state.last_conn_id,
+                last_req_id: state.last_req_id,
+                last_task_id: state.last_task_id,
+            },
+            applied: false,
+            reason_code: reject_code,
+        }
+    } else {
+        TaskManagerTransitionResult {
+            state: TaskManagerRuntimeState {
+                attached_task_count: state.attached_task_count,
+                request_mapping_count: state.request_mapping_count,
+                rejected_operation_count: state.rejected_operation_count,
+                rebind_conflict_count: state.rebind_conflict_count,
+                user_bucket_remove_count: state.user_bucket_remove_count,
+                last_conn_id: new_conn_id,
+                last_req_id: state.last_req_id,
+                last_task_id: state.last_task_id,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_task_manager_track_request(
+    state: TaskManagerRuntimeState,
+    req_id: i64,
+) -> TaskManagerTransitionResult
+requires req_id >= 0
+{
+    if should_track_request_id(req_id) {
+        TaskManagerTransitionResult {
+            state: TaskManagerRuntimeState {
+                attached_task_count: state.attached_task_count,
+                request_mapping_count: state.request_mapping_count + 1,
+                rejected_operation_count: state.rejected_operation_count,
+                rebind_conflict_count: state.rebind_conflict_count,
+                user_bucket_remove_count: state.user_bucket_remove_count,
+                last_conn_id: state.last_conn_id,
+                last_req_id: req_id,
+                last_task_id: state.last_task_id,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        TaskManagerTransitionResult {
+            state: TaskManagerRuntimeState {
+                attached_task_count: state.attached_task_count,
+                request_mapping_count: state.request_mapping_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                rebind_conflict_count: state.rebind_conflict_count,
+                user_bucket_remove_count: state.user_bucket_remove_count,
+                last_conn_id: state.last_conn_id,
+                last_req_id: state.last_req_id,
+                last_task_id: state.last_task_id,
+            },
+            applied: false,
+            reason_code: 8502,
+        }
+    }
+}
+
+def apply_task_manager_remove_user_bucket(
+    state: TaskManagerRuntimeState,
+    task_count_after_remove: i64,
+) -> TaskManagerTransitionResult
+requires task_count_after_remove >= 0
+{
+    if should_remove_user_task_bucket(task_count_after_remove) {
+        TaskManagerTransitionResult {
+            state: TaskManagerRuntimeState {
+                attached_task_count: state.attached_task_count,
+                request_mapping_count: state.request_mapping_count,
+                rejected_operation_count: state.rejected_operation_count,
+                rebind_conflict_count: state.rebind_conflict_count,
+                user_bucket_remove_count: state.user_bucket_remove_count + 1,
+                last_conn_id: state.last_conn_id,
+                last_req_id: state.last_req_id,
+                last_task_id: state.last_task_id,
+            },
+            applied: true,
+            reason_code: 5403,
+        }
+    } else {
+        TaskManagerTransitionResult {
+            state: TaskManagerRuntimeState {
+                attached_task_count: state.attached_task_count,
+                request_mapping_count: state.request_mapping_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                rebind_conflict_count: state.rebind_conflict_count,
+                user_bucket_remove_count: state.user_bucket_remove_count,
+                last_conn_id: state.last_conn_id,
+                last_req_id: state.last_req_id,
+                last_task_id: state.last_task_id,
+            },
+            applied: false,
+            reason_code: 8503,
+        }
+    }
+}
+
+def apply_task_manager_lookup_reply(
+    state: TaskManagerRuntimeState,
+    mapping_exists: bool,
+    task_exists: bool,
+) -> TaskManagerTransitionResult
+{
+    if can_lookup_task_by_request_id(mapping_exists, task_exists) {
+        TaskManagerTransitionResult {
+            state: state,
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        TaskManagerTransitionResult {
+            state: TaskManagerRuntimeState {
+                attached_task_count: state.attached_task_count,
+                request_mapping_count: state.request_mapping_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                rebind_conflict_count: state.rebind_conflict_count,
+                user_bucket_remove_count: state.user_bucket_remove_count,
+                last_conn_id: state.last_conn_id,
+                last_req_id: state.last_req_id,
+                last_task_id: state.last_task_id,
+            },
+            applied: false,
+            reason_code: 8504,
+        }
+    }
+}
+
+def should_task_manager_backpressure(state: TaskManagerRuntimeState, max_mapping_count: i64) -> bool
+requires max_mapping_count >= 0
+{
+    state.request_mapping_count >= max_mapping_count
+}
+
+def should_task_manager_gc(state: TaskManagerRuntimeState) -> bool
+{
+    state.user_bucket_remove_count > 0 && state.attached_task_count == 0
+}

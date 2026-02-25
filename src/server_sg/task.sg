@@ -25,3 +25,195 @@ ensures result == true
 {
     true
 }
+
+struct TaskModuleRuntimeState {
+    next_task_id_value: i64,
+    active_task_count: i64,
+    recycled_id_count: i64,
+    pending_expected_reply_count: i64,
+    last_expected_reply_id: i64,
+    aborted_count: i64,
+}
+
+struct TaskModuleTransitionResult {
+    state: TaskModuleRuntimeState,
+    applied: bool,
+    reason_code: i64,
+    issued_task_id: i64,
+}
+
+def new_task_module_runtime_state(start_next_id: i64) -> TaskModuleRuntimeState
+requires start_next_id <= -1
+{
+    TaskModuleRuntimeState {
+        next_task_id_value: start_next_id,
+        active_task_count: 0,
+        recycled_id_count: 0,
+        pending_expected_reply_count: 0,
+        last_expected_reply_id: -1,
+        aborted_count: 0,
+    }
+}
+
+def apply_task_module_issue(state: TaskModuleRuntimeState) -> TaskModuleTransitionResult
+{
+    if should_recycle_task_id(state.next_task_id_value) {
+        TaskModuleTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8401,
+            issued_task_id: -1,
+        }
+    } else {
+        let issued_task_id = state.next_task_id_value;
+        TaskModuleTransitionResult {
+            state: TaskModuleRuntimeState {
+                next_task_id_value: next_task_id(state.next_task_id_value),
+                active_task_count: state.active_task_count + 1,
+                recycled_id_count: state.recycled_id_count,
+                pending_expected_reply_count: state.pending_expected_reply_count,
+                last_expected_reply_id: state.last_expected_reply_id,
+                aborted_count: state.aborted_count,
+            },
+            applied: true,
+            reason_code: 0,
+            issued_task_id: issued_task_id,
+        }
+    }
+}
+
+def apply_task_module_recycle_id(state: TaskModuleRuntimeState) -> TaskModuleTransitionResult
+{
+    if !should_recycle_task_id(state.next_task_id_value) {
+        TaskModuleTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8402,
+            issued_task_id: -1,
+        }
+    } else {
+        TaskModuleTransitionResult {
+            state: TaskModuleRuntimeState {
+                next_task_id_value: -2,
+                active_task_count: state.active_task_count,
+                recycled_id_count: state.recycled_id_count + 1,
+                pending_expected_reply_count: state.pending_expected_reply_count,
+                last_expected_reply_id: state.last_expected_reply_id,
+                aborted_count: state.aborted_count,
+            },
+            applied: true,
+            reason_code: 0,
+            issued_task_id: -1,
+        }
+    }
+}
+
+def apply_task_module_bind_expected_reply(
+    state: TaskModuleRuntimeState,
+    reply_id: i64,
+) -> TaskModuleTransitionResult
+{
+    if !can_bind_expected_reply_id(reply_id) {
+        TaskModuleTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8403,
+            issued_task_id: -1,
+        }
+    } else {
+        TaskModuleTransitionResult {
+            state: TaskModuleRuntimeState {
+                next_task_id_value: state.next_task_id_value,
+                active_task_count: state.active_task_count,
+                recycled_id_count: state.recycled_id_count,
+                pending_expected_reply_count: state.pending_expected_reply_count + 1,
+                last_expected_reply_id: reply_id,
+                aborted_count: state.aborted_count,
+            },
+            applied: true,
+            reason_code: 0,
+            issued_task_id: -1,
+        }
+    }
+}
+
+def apply_task_module_release_ref(
+    state: TaskModuleRuntimeState,
+    lua_ref_count: i64,
+) -> TaskModuleTransitionResult
+requires lua_ref_count >= 0
+{
+    if !should_remove_task_when_ref_zero(lua_ref_count) {
+        TaskModuleTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8404,
+            issued_task_id: -1,
+        }
+    } else if state.active_task_count == 0 {
+        TaskModuleTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8405,
+            issued_task_id: -1,
+        }
+    } else {
+        TaskModuleTransitionResult {
+            state: TaskModuleRuntimeState {
+                next_task_id_value: state.next_task_id_value,
+                active_task_count: state.active_task_count - 1,
+                recycled_id_count: state.recycled_id_count,
+                pending_expected_reply_count: state.pending_expected_reply_count,
+                last_expected_reply_id: state.last_expected_reply_id,
+                aborted_count: state.aborted_count,
+            },
+            applied: true,
+            reason_code: 0,
+            issued_task_id: -1,
+        }
+    }
+}
+
+def apply_task_module_abort_destruct(state: TaskModuleRuntimeState) -> TaskModuleTransitionResult
+{
+    if !should_abort_on_destruct() {
+        TaskModuleTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8406,
+            issued_task_id: -1,
+        }
+    } else if state.active_task_count == 0 && state.pending_expected_reply_count == 0 {
+        TaskModuleTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8407,
+            issued_task_id: -1,
+        }
+    } else {
+        TaskModuleTransitionResult {
+            state: TaskModuleRuntimeState {
+                next_task_id_value: state.next_task_id_value,
+                active_task_count: 0,
+                recycled_id_count: state.recycled_id_count,
+                pending_expected_reply_count: 0,
+                last_expected_reply_id: state.last_expected_reply_id,
+                aborted_count: state.aborted_count + 1,
+            },
+            applied: true,
+            reason_code: 0,
+            issued_task_id: -1,
+        }
+    }
+}
+
+def can_task_module_issue_more(state: TaskModuleRuntimeState, max_active_tasks: i64) -> bool
+requires max_active_tasks >= 0
+{
+    state.active_task_count < max_active_tasks
+}
+
+def should_task_module_emit_cleanup(state: TaskModuleRuntimeState) -> bool
+{
+    state.active_task_count == 0 && state.pending_expected_reply_count == 0
+}

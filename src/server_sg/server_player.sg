@@ -36,3 +36,222 @@ ensures result >= 0
         candidate
     }
 }
+
+struct ServerPlayerRuntimeState {
+    conn_id: i64,
+    online: bool,
+    inside_game: bool,
+    is_died: bool,
+    ttl: i64,
+    max_ttl: i64,
+    runned_on_disconnect: bool,
+    null_notify_count: i64,
+    disconnect_count: i64,
+}
+
+struct ServerPlayerTransitionResult {
+    state: ServerPlayerRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_server_player_runtime_state(conn_id: i64, max_ttl: i64) -> ServerPlayerRuntimeState
+requires conn_id >= 0 && max_ttl >= 0
+{
+    ServerPlayerRuntimeState {
+        conn_id: conn_id,
+        online: false,
+        inside_game: false,
+        is_died: false,
+        ttl: max_ttl,
+        max_ttl: max_ttl,
+        runned_on_disconnect: false,
+        null_notify_count: 0,
+        disconnect_count: 0,
+    }
+}
+
+def apply_server_player_attach_socket(
+    state: ServerPlayerRuntimeState,
+    socket_attached: bool,
+) -> ServerPlayerTransitionResult
+{
+    if !socket_attached {
+        ServerPlayerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8301,
+        }
+    } else {
+        ServerPlayerTransitionResult {
+            state: ServerPlayerRuntimeState {
+                conn_id: state.conn_id,
+                online: is_player_online_state(socket_attached),
+                inside_game: state.inside_game,
+                is_died: state.is_died,
+                ttl: state.max_ttl,
+                max_ttl: state.max_ttl,
+                runned_on_disconnect: false,
+                null_notify_count: state.null_notify_count,
+                disconnect_count: state.disconnect_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_server_player_disconnect(state: ServerPlayerRuntimeState) -> ServerPlayerTransitionResult
+{
+    if !state.online {
+        ServerPlayerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8302,
+        }
+    } else {
+        ServerPlayerTransitionResult {
+            state: ServerPlayerRuntimeState {
+                conn_id: state.conn_id,
+                online: false,
+                inside_game: state.inside_game,
+                is_died: state.is_died,
+                ttl: 0,
+                max_ttl: state.max_ttl,
+                runned_on_disconnect: should_mark_runned_on_disconnect(state.inside_game, state.is_died),
+                null_notify_count: state.null_notify_count,
+                disconnect_count: state.disconnect_count + 1,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_server_player_heartbeat(
+    state: ServerPlayerRuntimeState,
+    is_heartbeat: bool,
+) -> ServerPlayerTransitionResult
+{
+    if !is_heartbeat {
+        ServerPlayerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8303,
+        }
+    } else if state.max_ttl == 0 {
+        ServerPlayerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8304,
+        }
+    } else {
+        ServerPlayerTransitionResult {
+            state: ServerPlayerRuntimeState {
+                conn_id: state.conn_id,
+                online: true,
+                inside_game: state.inside_game,
+                is_died: state.is_died,
+                ttl: next_ttl_after_notification(true, state.ttl, state.max_ttl),
+                max_ttl: state.max_ttl,
+                runned_on_disconnect: false,
+                null_notify_count: state.null_notify_count,
+                disconnect_count: state.disconnect_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_server_player_notify_payload(
+    state: ServerPlayerRuntimeState,
+    data_empty: bool,
+) -> ServerPlayerTransitionResult
+{
+    let use_null = should_use_null_notify_payload(data_empty);
+    let next_null_notify_count = if use_null {
+        state.null_notify_count + 1
+    } else {
+        state.null_notify_count
+    };
+    ServerPlayerTransitionResult {
+        state: ServerPlayerRuntimeState {
+            conn_id: state.conn_id,
+            online: state.online,
+            inside_game: state.inside_game,
+            is_died: state.is_died,
+            ttl: state.ttl,
+            max_ttl: state.max_ttl,
+            runned_on_disconnect: state.runned_on_disconnect,
+            null_notify_count: next_null_notify_count,
+            disconnect_count: state.disconnect_count,
+        },
+        applied: true,
+        reason_code: 0,
+    }
+}
+
+def apply_server_player_set_game_flags(
+    state: ServerPlayerRuntimeState,
+    inside_game: bool,
+    is_died: bool,
+) -> ServerPlayerTransitionResult
+{
+    if state.inside_game == inside_game && state.is_died == is_died {
+        ServerPlayerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 8305,
+        }
+    } else {
+        ServerPlayerTransitionResult {
+            state: ServerPlayerRuntimeState {
+                conn_id: state.conn_id,
+                online: state.online,
+                inside_game: inside_game,
+                is_died: is_died,
+                ttl: state.ttl,
+                max_ttl: state.max_ttl,
+                runned_on_disconnect: state.runned_on_disconnect,
+                null_notify_count: state.null_notify_count,
+                disconnect_count: state.disconnect_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_server_player_rebind_conn(
+    state: ServerPlayerRuntimeState,
+    current_next_conn_id: i64,
+) -> ServerPlayerTransitionResult
+requires current_next_conn_id >= 0
+{
+    ServerPlayerTransitionResult {
+        state: ServerPlayerRuntimeState {
+            conn_id: next_conn_id(current_next_conn_id),
+            online: state.online,
+            inside_game: state.inside_game,
+            is_died: state.is_died,
+            ttl: state.ttl,
+            max_ttl: state.max_ttl,
+            runned_on_disconnect: state.runned_on_disconnect,
+            null_notify_count: state.null_notify_count,
+            disconnect_count: state.disconnect_count,
+        },
+        applied: true,
+        reason_code: 0,
+    }
+}
+
+def should_server_player_timeout(state: ServerPlayerRuntimeState) -> bool
+{
+    state.ttl == 0 && !state.online
+}
+
+def can_server_player_dispatch(state: ServerPlayerRuntimeState) -> bool
+{
+    state.online && state.ttl > 0
+}

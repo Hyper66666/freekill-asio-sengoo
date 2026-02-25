@@ -52,3 +52,209 @@ ensures result >= 0
         }
     }
 }
+
+struct RoomManagerRuntimeState {
+    room_count: i64,
+    active_room_count: i64,
+    removed_room_count: i64,
+    abandoned_room_count: i64,
+    total_players: i64,
+    total_online_humans: i64,
+    last_owner_conn_id: i64,
+    rejected_operation_count: i64,
+}
+
+struct RoomManagerTransitionResult {
+    state: RoomManagerRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_room_manager_runtime_state() -> RoomManagerRuntimeState
+{
+    RoomManagerRuntimeState {
+        room_count: 0,
+        active_room_count: 0,
+        removed_room_count: 0,
+        abandoned_room_count: 0,
+        total_players: 0,
+        total_online_humans: 0,
+        last_owner_conn_id: 0,
+        rejected_operation_count: 0,
+    }
+}
+
+def clamp_subtract_non_negative(current: i64, delta: i64) -> i64
+requires current >= 0 && delta >= 0
+ensures result >= 0
+{
+    if delta >= current {
+        0
+    } else {
+        current - delta
+    }
+}
+
+def apply_room_manager_create_room(
+    state: RoomManagerRuntimeState,
+    name_passes_ban_check: bool,
+    creator_online: bool,
+    creator_conn_id: i64,
+) -> RoomManagerTransitionResult
+requires creator_conn_id >= 0
+{
+    if can_create_room(name_passes_ban_check, creator_online) {
+        RoomManagerTransitionResult {
+            state: RoomManagerRuntimeState {
+                room_count: state.room_count + 1,
+                active_room_count: state.active_room_count + 1,
+                removed_room_count: state.removed_room_count,
+                abandoned_room_count: state.abandoned_room_count,
+                total_players: state.total_players,
+                total_online_humans: state.total_online_humans,
+                last_owner_conn_id: next_room_owner_conn_id(0, creator_conn_id, creator_online),
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        let reject_code = if !name_passes_ban_check {
+            8201
+        } else {
+            8202
+        };
+        RoomManagerTransitionResult {
+            state: RoomManagerRuntimeState {
+                room_count: state.room_count,
+                active_room_count: state.active_room_count,
+                removed_room_count: state.removed_room_count,
+                abandoned_room_count: state.abandoned_room_count,
+                total_players: state.total_players,
+                total_online_humans: state.total_online_humans,
+                last_owner_conn_id: state.last_owner_conn_id,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: reject_code,
+        }
+    }
+}
+
+def apply_room_manager_join_room(
+    state: RoomManagerRuntimeState,
+    current_players: i64,
+    capacity: i64,
+    room_started: bool,
+    candidate_conn_id: i64,
+    candidate_online: bool,
+    current_owner_conn_id: i64,
+) -> RoomManagerTransitionResult
+requires current_players >= 0 && capacity >= 0 && candidate_conn_id >= 0 && current_owner_conn_id >= 0
+{
+    if can_join_room(current_players, capacity, room_started) {
+        let next_online_humans = if candidate_online {
+            state.total_online_humans + 1
+        } else {
+            state.total_online_humans
+        };
+        RoomManagerTransitionResult {
+            state: RoomManagerRuntimeState {
+                room_count: state.room_count,
+                active_room_count: state.active_room_count,
+                removed_room_count: state.removed_room_count,
+                abandoned_room_count: state.abandoned_room_count,
+                total_players: state.total_players + 1,
+                total_online_humans: next_online_humans,
+                last_owner_conn_id: next_room_owner_conn_id(current_owner_conn_id, candidate_conn_id, candidate_online),
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        let reject_code = if room_started {
+            8203
+        } else {
+            8204
+        };
+        RoomManagerTransitionResult {
+            state: RoomManagerRuntimeState {
+                room_count: state.room_count,
+                active_room_count: state.active_room_count,
+                removed_room_count: state.removed_room_count,
+                abandoned_room_count: state.abandoned_room_count,
+                total_players: state.total_players,
+                total_online_humans: state.total_online_humans,
+                last_owner_conn_id: state.last_owner_conn_id,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: reject_code,
+        }
+    }
+}
+
+def apply_room_manager_remove_room(
+    state: RoomManagerRuntimeState,
+    player_count: i64,
+    online_human_count: i64,
+    lua_ref_count: i64,
+) -> RoomManagerTransitionResult
+requires player_count >= 0 && online_human_count >= 0 && lua_ref_count >= 0
+{
+    let removal_code = should_remove_room_reason_code(player_count, online_human_count, lua_ref_count);
+    if removal_code == 0 {
+        RoomManagerTransitionResult {
+            state: RoomManagerRuntimeState {
+                room_count: state.room_count,
+                active_room_count: state.active_room_count,
+                removed_room_count: state.removed_room_count,
+                abandoned_room_count: state.abandoned_room_count,
+                total_players: state.total_players,
+                total_online_humans: state.total_online_humans,
+                last_owner_conn_id: state.last_owner_conn_id,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 8205,
+        }
+    } else {
+        let next_abandoned = if removal_code == 5303 {
+            state.abandoned_room_count + 1
+        } else {
+            state.abandoned_room_count
+        };
+        RoomManagerTransitionResult {
+            state: RoomManagerRuntimeState {
+                room_count: clamp_subtract_non_negative(state.room_count, 1),
+                active_room_count: clamp_subtract_non_negative(state.active_room_count, 1),
+                removed_room_count: state.removed_room_count + 1,
+                abandoned_room_count: next_abandoned,
+                total_players: clamp_subtract_non_negative(state.total_players, player_count),
+                total_online_humans: clamp_subtract_non_negative(state.total_online_humans, online_human_count),
+                last_owner_conn_id: state.last_owner_conn_id,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: removal_code,
+        }
+    }
+}
+
+def should_room_manager_backpressure(state: RoomManagerRuntimeState, max_active_rooms: i64) -> bool
+requires max_active_rooms >= 0
+{
+    state.active_room_count >= max_active_rooms
+}
+
+def should_room_manager_run_gc(state: RoomManagerRuntimeState, min_abandoned_rooms: i64) -> bool
+requires min_abandoned_rooms >= 0
+{
+    state.abandoned_room_count >= min_abandoned_rooms
+}
+
+def can_room_manager_assign_owner(state: RoomManagerRuntimeState) -> bool
+{
+    state.last_owner_conn_id > 0
+}
