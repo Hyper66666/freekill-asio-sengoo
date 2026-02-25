@@ -28,3 +28,267 @@ requires task_array_len >= 0
 {
     task_payload_is_array && task_array_len == 2
 }
+
+struct LobbyRuntimeState {
+    online_player_count: i64,
+    room_request_count: i64,
+    listed_room_count: i64,
+    pending_task_count: i64,
+    robot_player_count: i64,
+    rejected_request_count: i64,
+}
+
+struct LobbyTransitionResult {
+    state: LobbyRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_lobby_runtime_state() -> LobbyRuntimeState
+{
+    LobbyRuntimeState {
+        online_player_count: 0,
+        room_request_count: 0,
+        listed_room_count: 0,
+        pending_task_count: 0,
+        robot_player_count: 0,
+        rejected_request_count: 0,
+    }
+}
+
+def apply_lobby_create_room_request(
+    state: LobbyRuntimeState,
+    name_valid: bool,
+    capacity: i64,
+    timeout: i64,
+) -> LobbyTransitionResult
+requires capacity >= 0 && timeout >= 0
+{
+    if can_create_room_request(name_valid, capacity, timeout) {
+        LobbyTransitionResult {
+            state: LobbyRuntimeState {
+                online_player_count: state.online_player_count,
+                room_request_count: state.room_request_count + 1,
+                listed_room_count: state.listed_room_count,
+                pending_task_count: state.pending_task_count,
+                robot_player_count: state.robot_player_count,
+                rejected_request_count: state.rejected_request_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        let reject_code = if !name_valid {
+            8101
+        } else if capacity <= 0 {
+            8102
+        } else {
+            8103
+        };
+        LobbyTransitionResult {
+            state: LobbyRuntimeState {
+                online_player_count: state.online_player_count,
+                room_request_count: state.room_request_count,
+                listed_room_count: state.listed_room_count,
+                pending_task_count: state.pending_task_count,
+                robot_player_count: state.robot_player_count,
+                rejected_request_count: state.rejected_request_count + 1,
+            },
+            applied: false,
+            reason_code: reject_code,
+        }
+    }
+}
+
+def apply_lobby_enter_room_request(
+    state: LobbyRuntimeState,
+    room_exists: bool,
+    room_outdated: bool,
+    password_empty: bool,
+    password_match: bool,
+) -> LobbyTransitionResult
+{
+    if can_enter_room(room_exists, room_outdated, password_empty, password_match) {
+        LobbyTransitionResult {
+            state: LobbyRuntimeState {
+                online_player_count: state.online_player_count + 1,
+                room_request_count: state.room_request_count,
+                listed_room_count: state.listed_room_count,
+                pending_task_count: state.pending_task_count,
+                robot_player_count: state.robot_player_count,
+                rejected_request_count: state.rejected_request_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        let reject_code = if !room_exists {
+            8104
+        } else if room_outdated {
+            8105
+        } else {
+            8106
+        };
+        LobbyTransitionResult {
+            state: LobbyRuntimeState {
+                online_player_count: state.online_player_count,
+                room_request_count: state.room_request_count,
+                listed_room_count: state.listed_room_count,
+                pending_task_count: state.pending_task_count,
+                robot_player_count: state.robot_player_count,
+                rejected_request_count: state.rejected_request_count + 1,
+            },
+            applied: false,
+            reason_code: reject_code,
+        }
+    }
+}
+
+def apply_lobby_add_robot_player(state: LobbyRuntimeState) -> LobbyTransitionResult
+{
+    LobbyTransitionResult {
+        state: LobbyRuntimeState {
+            online_player_count: state.online_player_count + 1,
+            room_request_count: state.room_request_count,
+            listed_room_count: state.listed_room_count,
+            pending_task_count: state.pending_task_count,
+            robot_player_count: state.robot_player_count + 1,
+            rejected_request_count: state.rejected_request_count,
+        },
+        applied: true,
+        reason_code: 0,
+    }
+}
+
+def apply_lobby_remove_player(state: LobbyRuntimeState, is_robot: bool) -> LobbyTransitionResult
+{
+    if !should_remove_lobby_player(is_robot) {
+        LobbyTransitionResult {
+            state: LobbyRuntimeState {
+                online_player_count: state.online_player_count,
+                room_request_count: state.room_request_count,
+                listed_room_count: state.listed_room_count,
+                pending_task_count: state.pending_task_count,
+                robot_player_count: state.robot_player_count,
+                rejected_request_count: state.rejected_request_count + 1,
+            },
+            applied: false,
+            reason_code: 8107,
+        }
+    } else if state.robot_player_count == 0 {
+        LobbyTransitionResult {
+            state: LobbyRuntimeState {
+                online_player_count: state.online_player_count,
+                room_request_count: state.room_request_count,
+                listed_room_count: state.listed_room_count,
+                pending_task_count: state.pending_task_count,
+                robot_player_count: state.robot_player_count,
+                rejected_request_count: state.rejected_request_count + 1,
+            },
+            applied: false,
+            reason_code: 8108,
+        }
+    } else {
+        let next_online = if state.online_player_count > 0 {
+            state.online_player_count - 1
+        } else {
+            0
+        };
+        LobbyTransitionResult {
+            state: LobbyRuntimeState {
+                online_player_count: next_online,
+                room_request_count: state.room_request_count,
+                listed_room_count: state.listed_room_count,
+                pending_task_count: state.pending_task_count,
+                robot_player_count: state.robot_player_count - 1,
+                rejected_request_count: state.rejected_request_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_lobby_list_room(state: LobbyRuntimeState, room_full: bool) -> LobbyTransitionResult
+{
+    if should_list_room_first(room_full) {
+        LobbyTransitionResult {
+            state: LobbyRuntimeState {
+                online_player_count: state.online_player_count,
+                room_request_count: state.room_request_count,
+                listed_room_count: state.listed_room_count + 1,
+                pending_task_count: state.pending_task_count,
+                robot_player_count: state.robot_player_count,
+                rejected_request_count: state.rejected_request_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        LobbyTransitionResult {
+            state: LobbyRuntimeState {
+                online_player_count: state.online_player_count,
+                room_request_count: state.room_request_count,
+                listed_room_count: state.listed_room_count,
+                pending_task_count: state.pending_task_count,
+                robot_player_count: state.robot_player_count,
+                rejected_request_count: state.rejected_request_count + 1,
+            },
+            applied: false,
+            reason_code: 8109,
+        }
+    }
+}
+
+def apply_lobby_dispatch_task(
+    state: LobbyRuntimeState,
+    task_payload_is_array: bool,
+    task_array_len: i64,
+) -> LobbyTransitionResult
+requires task_array_len >= 0
+{
+    if can_dispatch_lobby_task(task_payload_is_array, task_array_len) {
+        LobbyTransitionResult {
+            state: LobbyRuntimeState {
+                online_player_count: state.online_player_count,
+                room_request_count: state.room_request_count,
+                listed_room_count: state.listed_room_count,
+                pending_task_count: state.pending_task_count + 1,
+                robot_player_count: state.robot_player_count,
+                rejected_request_count: state.rejected_request_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        let reject_code = if !task_payload_is_array {
+            8110
+        } else {
+            8111
+        };
+        LobbyTransitionResult {
+            state: LobbyRuntimeState {
+                online_player_count: state.online_player_count,
+                room_request_count: state.room_request_count,
+                listed_room_count: state.listed_room_count,
+                pending_task_count: state.pending_task_count,
+                robot_player_count: state.robot_player_count,
+                rejected_request_count: state.rejected_request_count + 1,
+            },
+            applied: false,
+            reason_code: reject_code,
+        }
+    }
+}
+
+def should_lobby_backpressure(state: LobbyRuntimeState, max_pending_tasks: i64) -> bool
+requires max_pending_tasks >= 0
+{
+    state.pending_task_count >= max_pending_tasks
+}
+
+def can_lobby_accept_more_players(state: LobbyRuntimeState, max_online_players: i64) -> bool
+requires max_online_players >= 0
+{
+    state.online_player_count < max_online_players
+}
