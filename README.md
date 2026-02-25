@@ -28,6 +28,7 @@ This directory is intentionally isolated from the current C++ server and has its
 - `docs/RUNTIME_EVENT_SCHEMA.md`: runtime collector input schema and examples
 - `docs/LIVE_RUNTIME_ACCEPTANCE.md`: live endpoint probe flow and manifest schema
 - `docs/RUNTIME_HOST_E2E_ACCEPTANCE.md`: runtime host orchestration and report contract
+- `docs/MAINLINE_MIGRATION.md`: dry-run/apply runbook for promotion into mainline tree
 - `tests/smoke/`: milestone and completion smoke checks
 - `tests/runtime/`: runtime artifact parity harness scripts
 
@@ -46,6 +47,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_parity_p
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_live_evidence_collector_smoke.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_live_acceptance_smoke.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_host_e2e_smoke.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/mainline_migration_plan_smoke.ps1
 ```
 
 If `sgc` is available locally:
