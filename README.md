@@ -7,7 +7,6 @@
 - Sengoo 语言仓库：<https://github.com/Hyper66666/Sengoo>
 
 本仓库在目录与 git 历史上与原 C++ 项目隔离，目标是把 `freekill-asio` 的服务端能力迁移为可落地替换的 Sengoo 实现。
-当前公开历史按要求仅保留核心实现代码（`src/` 与必要 `scripts/`），不包含 `docs/`、`openspec/`、`tests/` 目录的提交记录。
 
 ## 重写完成状态（摘要）
 
@@ -50,7 +49,6 @@
 
 ### 3. 验收与工程治理说明
 
-- 为满足“只提交实现代码”的约束，测试资产、OpenSpec 与文档资产未随当前历史发布
 - 完整验收链路（runtime parity/live probe/e2e host）在重写过程中已执行并通过
 - 当前仓库用于承载 Sengoo 侧核心实现与必要迁移脚本
 
