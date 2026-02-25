@@ -1715,3 +1715,383 @@ def should_runtime_driver_shutdown(driver_state: RuntimeDriverState) -> bool
 {
     should_runtime_shutdown(driver_state.host_state) || driver_state.buffer_state.dropped_count >= 3
 }
+
+struct RuntimeWireFrame {
+    packet_type: i64,
+    opcode: i64,
+    conn_id: i64,
+    arg1: i64,
+    arg2: i64,
+    request_id: i64,
+}
+
+struct RuntimeIngressResult {
+    accepted: bool,
+    reason_code: i64,
+    event: RuntimeEvent,
+    frame: RuntimeWireFrame,
+}
+
+struct RuntimeIngressDriverResult {
+    ingress: RuntimeIngressResult,
+    driver: RuntimeDriverResult,
+}
+
+struct RuntimeWireOutbound {
+    sendable: bool,
+    conn_id: i64,
+    opcode: i64,
+    payload_a: i64,
+    payload_b: i64,
+    reason_code: i64,
+}
+
+def runtime_wire_packet_type_request() -> i64
+ensures result == 0x100
+{
+    0x100
+}
+
+def runtime_wire_packet_type_notification() -> i64
+ensures result == 0x400
+{
+    0x400
+}
+
+def runtime_wire_opcode_room_join() -> i64
+ensures result == 2101
+{
+    2101
+}
+
+def runtime_wire_opcode_room_leave() -> i64
+ensures result == 2102
+{
+    2102
+}
+
+def runtime_wire_opcode_room_start() -> i64
+ensures result == 2103
+{
+    2103
+}
+
+def runtime_wire_opcode_room_mark_outdated() -> i64
+ensures result == 2104
+{
+    2104
+}
+
+def runtime_wire_opcode_player_heartbeat() -> i64
+ensures result == 2105
+{
+    2105
+}
+
+def runtime_wire_opcode_player_disconnect() -> i64
+ensures result == 2106
+{
+    2106
+}
+
+def runtime_wire_opcode_task_issue() -> i64
+ensures result == 2107
+{
+    2107
+}
+
+def runtime_wire_opcode_task_finish() -> i64
+ensures result == 2108
+{
+    2108
+}
+
+def runtime_wire_opcode_task_abort_all() -> i64
+ensures result == 2109
+{
+    2109
+}
+
+def runtime_wire_opcode_player_enter_game() -> i64
+ensures result == 2110
+{
+    2110
+}
+
+def runtime_wire_opcode_player_set_dead() -> i64
+ensures result == 2111
+{
+    2111
+}
+
+def runtime_wire_opcode_room_set_lua_ref() -> i64
+ensures result == 2112
+{
+    2112
+}
+
+def runtime_wire_opcode_player_ttl_tick() -> i64
+ensures result == 2113
+{
+    2113
+}
+
+def runtime_wire_outbound_opcode_room_changed() -> i64
+ensures result == 2201
+{
+    2201
+}
+
+def runtime_wire_outbound_opcode_room_started() -> i64
+ensures result == 2202
+{
+    2202
+}
+
+def runtime_wire_outbound_opcode_heartbeat_ack() -> i64
+ensures result == 2203
+{
+    2203
+}
+
+def runtime_wire_outbound_opcode_player_disconnected() -> i64
+ensures result == 2204
+{
+    2204
+}
+
+def runtime_wire_outbound_opcode_task_issued() -> i64
+ensures result == 2205
+{
+    2205
+}
+
+def runtime_wire_outbound_opcode_task_finished() -> i64
+ensures result == 2206
+{
+    2206
+}
+
+def runtime_wire_outbound_opcode_gc_suggested() -> i64
+ensures result == 2207
+{
+    2207
+}
+
+def make_runtime_wire_frame(
+    packet_type: i64,
+    opcode: i64,
+    conn_id: i64,
+    arg1: i64,
+    arg2: i64,
+    request_id: i64,
+) -> RuntimeWireFrame
+{
+    RuntimeWireFrame {
+        packet_type: packet_type,
+        opcode: opcode,
+        conn_id: conn_id,
+        arg1: arg1,
+        arg2: arg2,
+        request_id: request_id,
+    }
+}
+
+def is_runtime_wire_packet_type_supported(packet_type: i64) -> bool
+{
+    packet_type == runtime_wire_packet_type_request()
+        || packet_type == runtime_wire_packet_type_notification()
+}
+
+def make_runtime_ingress_accept(frame: RuntimeWireFrame, event: RuntimeEvent) -> RuntimeIngressResult
+{
+    RuntimeIngressResult {
+        accepted: true,
+        reason_code: 0,
+        event: event,
+        frame: frame,
+    }
+}
+
+def make_runtime_ingress_reject(frame: RuntimeWireFrame, reason_code: i64) -> RuntimeIngressResult
+{
+    RuntimeIngressResult {
+        accepted: false,
+        reason_code: reason_code,
+        event: runtime_event_none(),
+        frame: frame,
+    }
+}
+
+def decode_runtime_wire_frame(frame: RuntimeWireFrame) -> RuntimeIngressResult
+{
+    if frame.conn_id <= 0 {
+        make_runtime_ingress_reject(frame, 7901)
+    } else if !is_runtime_wire_packet_type_supported(frame.packet_type) {
+        make_runtime_ingress_reject(frame, 7903)
+    } else {
+        if frame.opcode == runtime_wire_opcode_room_join() {
+            make_runtime_ingress_accept(
+                frame,
+                make_runtime_event(runtime_event_room_join(), frame.arg1, frame.arg2),
+            )
+        } else if frame.opcode == runtime_wire_opcode_room_leave() {
+            make_runtime_ingress_accept(
+                frame,
+                make_runtime_event(runtime_event_room_leave(), frame.arg1, frame.arg2),
+            )
+        } else if frame.opcode == runtime_wire_opcode_room_start() {
+            make_runtime_ingress_accept(
+                frame,
+                make_runtime_event(runtime_event_room_start(), 0, 0),
+            )
+        } else if frame.opcode == runtime_wire_opcode_room_mark_outdated() {
+            make_runtime_ingress_accept(
+                frame,
+                make_runtime_event(runtime_event_room_mark_outdated(), frame.arg1, frame.arg2),
+            )
+        } else if frame.opcode == runtime_wire_opcode_player_heartbeat() {
+            make_runtime_ingress_accept(
+                frame,
+                make_runtime_event(runtime_event_player_heartbeat(), frame.arg1, frame.arg2),
+            )
+        } else if frame.opcode == runtime_wire_opcode_player_disconnect() {
+            make_runtime_ingress_accept(
+                frame,
+                make_runtime_event(runtime_event_player_disconnect(), 0, 0),
+            )
+        } else if frame.opcode == runtime_wire_opcode_task_issue() {
+            make_runtime_ingress_accept(
+                frame,
+                make_runtime_event(runtime_event_task_issue(), frame.conn_id, frame.arg1),
+            )
+        } else if frame.opcode == runtime_wire_opcode_task_finish() {
+            make_runtime_ingress_accept(
+                frame,
+                make_runtime_event(runtime_event_task_finish(), frame.arg1, 0),
+            )
+        } else if frame.opcode == runtime_wire_opcode_task_abort_all() {
+            make_runtime_ingress_accept(
+                frame,
+                make_runtime_event(runtime_event_task_abort_all(), 0, 0),
+            )
+        } else if frame.opcode == runtime_wire_opcode_player_enter_game() {
+            make_runtime_ingress_accept(
+                frame,
+                make_runtime_event(runtime_event_player_enter_game(), 0, 0),
+            )
+        } else if frame.opcode == runtime_wire_opcode_player_set_dead() {
+            make_runtime_ingress_accept(
+                frame,
+                make_runtime_event(runtime_event_player_set_dead(), frame.arg1, 0),
+            )
+        } else if frame.opcode == runtime_wire_opcode_room_set_lua_ref() {
+            make_runtime_ingress_accept(
+                frame,
+                make_runtime_event(runtime_event_room_set_lua_ref(), frame.arg1, 0),
+            )
+        } else if frame.opcode == runtime_wire_opcode_player_ttl_tick() {
+            make_runtime_ingress_accept(
+                frame,
+                make_runtime_event(runtime_event_player_ttl_tick(), 0, 0),
+            )
+        } else {
+            make_runtime_ingress_reject(frame, 7902)
+        }
+    }
+}
+
+def ingest_runtime_wire_frame(
+    driver_state: RuntimeDriverState,
+    frame: RuntimeWireFrame,
+) -> RuntimeIngressDriverResult
+{
+    let ingress = decode_runtime_wire_frame(frame);
+    if !ingress.accepted {
+        RuntimeIngressDriverResult {
+            ingress: ingress,
+            driver: RuntimeDriverResult {
+                state: RuntimeDriverState {
+                    engine_state: driver_state.engine_state,
+                    host_state: driver_state.host_state,
+                    channel_state: driver_state.channel_state,
+                    buffer_state: driver_state.buffer_state,
+                    step_count: driver_state.step_count,
+                    idle_step_count: driver_state.idle_step_count,
+                    rejected_step_count: driver_state.rejected_step_count + 1,
+                },
+                applied: false,
+                reason_code: ingress.reason_code,
+                step: make_runtime_noop_step(
+                    driver_state.engine_state,
+                    driver_state.host_state,
+                    ingress.reason_code,
+                    frame.opcode,
+                ),
+                dequeued_event: runtime_event_none(),
+            },
+        }
+    } else {
+        RuntimeIngressDriverResult {
+            ingress: ingress,
+            driver: push_and_step_runtime_driver(driver_state, ingress.event),
+        }
+    }
+}
+
+def runtime_wire_outbound_opcode_from_io_kind(io_kind: i64) -> i64
+{
+    if io_kind == runtime_io_kind_room_changed() {
+        runtime_wire_outbound_opcode_room_changed()
+    } else if io_kind == runtime_io_kind_room_started() {
+        runtime_wire_outbound_opcode_room_started()
+    } else if io_kind == runtime_io_kind_heartbeat_ack() {
+        runtime_wire_outbound_opcode_heartbeat_ack()
+    } else if io_kind == runtime_io_kind_player_disconnected() {
+        runtime_wire_outbound_opcode_player_disconnected()
+    } else if io_kind == runtime_io_kind_task_issued() {
+        runtime_wire_outbound_opcode_task_issued()
+    } else if io_kind == runtime_io_kind_task_finished() {
+        runtime_wire_outbound_opcode_task_finished()
+    } else if io_kind == runtime_io_kind_gc_suggested() {
+        runtime_wire_outbound_opcode_gc_suggested()
+    } else {
+        0
+    }
+}
+
+def build_runtime_wire_outbound(dispatch: RuntimeIoDispatch) -> RuntimeWireOutbound
+{
+    if !should_runtime_emit_io(dispatch) {
+        RuntimeWireOutbound {
+            sendable: false,
+            conn_id: 0,
+            opcode: 0,
+            payload_a: 0,
+            payload_b: 0,
+            reason_code: 7911,
+        }
+    } else {
+        let op = dispatch.op;
+        let opcode = runtime_wire_outbound_opcode_from_io_kind(op.kind);
+        if opcode == 0 {
+            RuntimeWireOutbound {
+                sendable: false,
+                conn_id: op.subject_id,
+                opcode: 0,
+                payload_a: op.value_a,
+                payload_b: op.value_b,
+                reason_code: 7912,
+            }
+        } else {
+            RuntimeWireOutbound {
+                sendable: true,
+                conn_id: op.subject_id,
+                opcode: opcode,
+                payload_a: op.value_a,
+                payload_b: op.value_b,
+                reason_code: 0,
+            }
+        }
+    }
+}
