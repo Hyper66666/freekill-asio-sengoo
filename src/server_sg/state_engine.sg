@@ -944,6 +944,104 @@ struct RuntimeStepResult {
     host_result: RuntimeHostResult,
 }
 
+struct RuntimeEvent {
+    code: i64,
+    arg1: i64,
+    arg2: i64,
+}
+
+def runtime_event_room_join() -> i64
+ensures result == 1
+{
+    1
+}
+
+def runtime_event_room_leave() -> i64
+ensures result == 2
+{
+    2
+}
+
+def runtime_event_room_start() -> i64
+ensures result == 3
+{
+    3
+}
+
+def runtime_event_room_mark_outdated() -> i64
+ensures result == 4
+{
+    4
+}
+
+def runtime_event_player_heartbeat() -> i64
+ensures result == 5
+{
+    5
+}
+
+def runtime_event_player_disconnect() -> i64
+ensures result == 6
+{
+    6
+}
+
+def runtime_event_task_issue() -> i64
+ensures result == 7
+{
+    7
+}
+
+def runtime_event_task_finish() -> i64
+ensures result == 8
+{
+    8
+}
+
+def runtime_event_task_abort_all() -> i64
+ensures result == 9
+{
+    9
+}
+
+def runtime_event_player_enter_game() -> i64
+ensures result == 10
+{
+    10
+}
+
+def runtime_event_player_set_dead() -> i64
+ensures result == 11
+{
+    11
+}
+
+def runtime_event_room_set_lua_ref() -> i64
+ensures result == 12
+{
+    12
+}
+
+def runtime_event_player_ttl_tick() -> i64
+ensures result == 13
+{
+    13
+}
+
+def is_runtime_event_known(event_code: i64) -> bool
+{
+    event_code >= 1 && event_code <= 13
+}
+
+def make_runtime_event(code: i64, arg1: i64, arg2: i64) -> RuntimeEvent
+{
+    RuntimeEvent {
+        code: code,
+        arg1: arg1,
+        arg2: arg2,
+    }
+}
+
 def new_runtime_host_state() -> RuntimeHostState
 {
     RuntimeHostState {
@@ -1057,4 +1155,43 @@ def apply_runtime_step(
 def should_runtime_shutdown(host_state: RuntimeHostState) -> bool
 {
     host_state.warning_count >= 3
+}
+
+def apply_runtime_event_record(state: RuntimeEngineState, event: RuntimeEvent) -> RuntimeEngineResult
+{
+    if !is_runtime_event_known(event.code) {
+        RuntimeEngineResult {
+            state: state,
+            applied: false,
+            reason_code: 7601,
+            event_code: event.code,
+        }
+    } else {
+        apply_runtime_event(state, event.code, event.arg1, event.arg2)
+    }
+}
+
+def apply_runtime_step_record(
+    runtime_state: RuntimeEngineState,
+    host_state: RuntimeHostState,
+    event: RuntimeEvent,
+) -> RuntimeStepResult
+{
+    if !is_runtime_event_known(event.code) {
+        let unknown_engine = RuntimeEngineResult {
+            state: runtime_state,
+            applied: false,
+            reason_code: 7601,
+            event_code: event.code,
+        };
+        let io_dispatch = build_runtime_io_dispatch(runtime_state, unknown_engine);
+        let io_result = apply_runtime_io_dispatch_to_host(host_state, io_dispatch);
+        RuntimeStepResult {
+            engine_result: unknown_engine,
+            io_dispatch: io_dispatch,
+            host_result: io_result,
+        }
+    } else {
+        apply_runtime_step(runtime_state, host_state, event.code, event.arg1, event.arg2)
+    }
 }
