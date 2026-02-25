@@ -43,3 +43,158 @@ def is_standard_jsonrpc_error_code(code: i64) -> bool
         || code == internal_error_code()
         || code == server_error_code()
 }
+
+def is_custom_jsonrpc_server_error_code(code: i64) -> bool
+{
+    code <= -32000 && code >= -32099 && code != server_error_code()
+}
+
+struct JsonrpcErrorCatalogRuntimeState {
+    observed_error_count: i64,
+    standard_error_count: i64,
+    custom_server_error_count: i64,
+    unknown_error_count: i64,
+    parse_error_count: i64,
+    invalid_request_count: i64,
+    method_not_found_count: i64,
+    invalid_params_count: i64,
+    internal_error_count: i64,
+    server_error_count: i64,
+    last_error_code: i64,
+    rejected_operation_count: i64,
+}
+
+struct JsonrpcErrorCatalogTransitionResult {
+    state: JsonrpcErrorCatalogRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_jsonrpc_error_catalog_runtime_state() -> JsonrpcErrorCatalogRuntimeState
+{
+    JsonrpcErrorCatalogRuntimeState {
+        observed_error_count: 0,
+        standard_error_count: 0,
+        custom_server_error_count: 0,
+        unknown_error_count: 0,
+        parse_error_count: 0,
+        invalid_request_count: 0,
+        method_not_found_count: 0,
+        invalid_params_count: 0,
+        internal_error_count: 0,
+        server_error_count: 0,
+        last_error_code: 0,
+        rejected_operation_count: 0,
+    }
+}
+
+def apply_jsonrpc_error_catalog_observe(
+    state: JsonrpcErrorCatalogRuntimeState,
+    code: i64,
+) -> JsonrpcErrorCatalogTransitionResult
+{
+    if is_standard_jsonrpc_error_code(code) {
+        let next_parse_count = if code == parse_error_code() {
+            state.parse_error_count + 1
+        } else {
+            state.parse_error_count
+        };
+        let next_invalid_request_count = if code == invalid_request_code() {
+            state.invalid_request_count + 1
+        } else {
+            state.invalid_request_count
+        };
+        let next_method_not_found_count = if code == method_not_found_code() {
+            state.method_not_found_count + 1
+        } else {
+            state.method_not_found_count
+        };
+        let next_invalid_params_count = if code == invalid_params_code() {
+            state.invalid_params_count + 1
+        } else {
+            state.invalid_params_count
+        };
+        let next_internal_error_count = if code == internal_error_code() {
+            state.internal_error_count + 1
+        } else {
+            state.internal_error_count
+        };
+        let next_server_error_count = if code == server_error_code() {
+            state.server_error_count + 1
+        } else {
+            state.server_error_count
+        };
+        JsonrpcErrorCatalogTransitionResult {
+            state: JsonrpcErrorCatalogRuntimeState {
+                observed_error_count: state.observed_error_count + 1,
+                standard_error_count: state.standard_error_count + 1,
+                custom_server_error_count: state.custom_server_error_count,
+                unknown_error_count: state.unknown_error_count,
+                parse_error_count: next_parse_count,
+                invalid_request_count: next_invalid_request_count,
+                method_not_found_count: next_method_not_found_count,
+                invalid_params_count: next_invalid_params_count,
+                internal_error_count: next_internal_error_count,
+                server_error_count: next_server_error_count,
+                last_error_code: code,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        if is_custom_jsonrpc_server_error_code(code) {
+            JsonrpcErrorCatalogTransitionResult {
+                state: JsonrpcErrorCatalogRuntimeState {
+                    observed_error_count: state.observed_error_count + 1,
+                    standard_error_count: state.standard_error_count,
+                    custom_server_error_count: state.custom_server_error_count + 1,
+                    unknown_error_count: state.unknown_error_count,
+                    parse_error_count: state.parse_error_count,
+                    invalid_request_count: state.invalid_request_count,
+                    method_not_found_count: state.method_not_found_count,
+                    invalid_params_count: state.invalid_params_count,
+                    internal_error_count: state.internal_error_count,
+                    server_error_count: state.server_error_count,
+                    last_error_code: code,
+                    rejected_operation_count: state.rejected_operation_count,
+                },
+                applied: true,
+                reason_code: 0,
+            }
+        } else {
+            JsonrpcErrorCatalogTransitionResult {
+                state: JsonrpcErrorCatalogRuntimeState {
+                    observed_error_count: state.observed_error_count + 1,
+                    standard_error_count: state.standard_error_count,
+                    custom_server_error_count: state.custom_server_error_count,
+                    unknown_error_count: state.unknown_error_count + 1,
+                    parse_error_count: state.parse_error_count,
+                    invalid_request_count: state.invalid_request_count,
+                    method_not_found_count: state.method_not_found_count,
+                    invalid_params_count: state.invalid_params_count,
+                    internal_error_count: state.internal_error_count,
+                    server_error_count: state.server_error_count,
+                    last_error_code: code,
+                    rejected_operation_count: state.rejected_operation_count + 1,
+                },
+                applied: false,
+                reason_code: 9911,
+            }
+        }
+    }
+}
+
+def should_jsonrpc_error_catalog_alert(
+    state: JsonrpcErrorCatalogRuntimeState,
+    max_unknown_error_count: i64,
+) -> bool
+requires max_unknown_error_count >= 0
+{
+    state.unknown_error_count >= max_unknown_error_count
+}
+
+def can_jsonrpc_error_catalog_emit_metrics(state: JsonrpcErrorCatalogRuntimeState) -> bool
+{
+    state.observed_error_count > 0
+}

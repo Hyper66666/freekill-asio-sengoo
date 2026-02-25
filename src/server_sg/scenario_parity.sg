@@ -52,3 +52,318 @@ requires player_count >= 0 && online_socket_count >= 0
 {
     player_count > 0 && online_socket_count > 0
 }
+
+struct ScenarioParityRuntimeState {
+    evaluated_flow_count: i64,
+    passed_flow_count: i64,
+    failed_flow_count: i64,
+    lobby_enter_pass_count: i64,
+    room_start_pass_count: i64,
+    task_reply_pass_count: i64,
+    recycle_room_pass_count: i64,
+    robot_add_pass_count: i64,
+    ready_state_pass_count: i64,
+    dispatch_task_pass_count: i64,
+    keep_alive_pass_count: i64,
+    last_flow_code: i64,
+    last_failed_flow_code: i64,
+    rejected_operation_count: i64,
+}
+
+struct ScenarioParityTransitionResult {
+    state: ScenarioParityRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_scenario_parity_runtime_state() -> ScenarioParityRuntimeState
+{
+    ScenarioParityRuntimeState {
+        evaluated_flow_count: 0,
+        passed_flow_count: 0,
+        failed_flow_count: 0,
+        lobby_enter_pass_count: 0,
+        room_start_pass_count: 0,
+        task_reply_pass_count: 0,
+        recycle_room_pass_count: 0,
+        robot_add_pass_count: 0,
+        ready_state_pass_count: 0,
+        dispatch_task_pass_count: 0,
+        keep_alive_pass_count: 0,
+        last_flow_code: 0,
+        last_failed_flow_code: 0,
+        rejected_operation_count: 0,
+    }
+}
+
+def scenario_parity_failure_reason_code(flow_code: i64) -> i64
+ensures result == 0
+    || result == 9921
+    || result == 9922
+    || result == 9923
+    || result == 9924
+    || result == 9925
+    || result == 9926
+    || result == 9927
+    || result == 9928
+    || result == 9929
+{
+    if flow_code == 1 {
+        9921
+    } else {
+        if flow_code == 2 {
+            9922
+        } else {
+            if flow_code == 3 {
+                9923
+            } else {
+                if flow_code == 4 {
+                    9924
+                } else {
+                    if flow_code == 5 {
+                        9925
+                    } else {
+                        if flow_code == 6 {
+                            9926
+                        } else {
+                            if flow_code == 7 {
+                                9927
+                            } else {
+                                if flow_code == 8 {
+                                    9928
+                                } else {
+                                    if flow_code == 0 {
+                                        0
+                                    } else {
+                                        9929
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+def apply_scenario_parity_evaluation(
+    state: ScenarioParityRuntimeState,
+    flow_code: i64,
+    matched_expected: bool,
+) -> ScenarioParityTransitionResult
+requires flow_code >= 0
+{
+    if flow_code == 0 || flow_code > 8 {
+        ScenarioParityTransitionResult {
+            state: ScenarioParityRuntimeState {
+                evaluated_flow_count: state.evaluated_flow_count,
+                passed_flow_count: state.passed_flow_count,
+                failed_flow_count: state.failed_flow_count,
+                lobby_enter_pass_count: state.lobby_enter_pass_count,
+                room_start_pass_count: state.room_start_pass_count,
+                task_reply_pass_count: state.task_reply_pass_count,
+                recycle_room_pass_count: state.recycle_room_pass_count,
+                robot_add_pass_count: state.robot_add_pass_count,
+                ready_state_pass_count: state.ready_state_pass_count,
+                dispatch_task_pass_count: state.dispatch_task_pass_count,
+                keep_alive_pass_count: state.keep_alive_pass_count,
+                last_flow_code: state.last_flow_code,
+                last_failed_flow_code: state.last_failed_flow_code,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9929,
+        }
+    } else {
+        if matched_expected {
+            let next_lobby_enter = if flow_code == 1 {
+                state.lobby_enter_pass_count + 1
+            } else {
+                state.lobby_enter_pass_count
+            };
+            let next_room_start = if flow_code == 2 {
+                state.room_start_pass_count + 1
+            } else {
+                state.room_start_pass_count
+            };
+            let next_task_reply = if flow_code == 3 {
+                state.task_reply_pass_count + 1
+            } else {
+                state.task_reply_pass_count
+            };
+            let next_recycle_room = if flow_code == 4 {
+                state.recycle_room_pass_count + 1
+            } else {
+                state.recycle_room_pass_count
+            };
+            let next_robot_add = if flow_code == 5 {
+                state.robot_add_pass_count + 1
+            } else {
+                state.robot_add_pass_count
+            };
+            let next_ready_state = if flow_code == 6 {
+                state.ready_state_pass_count + 1
+            } else {
+                state.ready_state_pass_count
+            };
+            let next_dispatch_task = if flow_code == 7 {
+                state.dispatch_task_pass_count + 1
+            } else {
+                state.dispatch_task_pass_count
+            };
+            let next_keep_alive = if flow_code == 8 {
+                state.keep_alive_pass_count + 1
+            } else {
+                state.keep_alive_pass_count
+            };
+            ScenarioParityTransitionResult {
+                state: ScenarioParityRuntimeState {
+                    evaluated_flow_count: state.evaluated_flow_count + 1,
+                    passed_flow_count: state.passed_flow_count + 1,
+                    failed_flow_count: state.failed_flow_count,
+                    lobby_enter_pass_count: next_lobby_enter,
+                    room_start_pass_count: next_room_start,
+                    task_reply_pass_count: next_task_reply,
+                    recycle_room_pass_count: next_recycle_room,
+                    robot_add_pass_count: next_robot_add,
+                    ready_state_pass_count: next_ready_state,
+                    dispatch_task_pass_count: next_dispatch_task,
+                    keep_alive_pass_count: next_keep_alive,
+                    last_flow_code: flow_code,
+                    last_failed_flow_code: state.last_failed_flow_code,
+                    rejected_operation_count: state.rejected_operation_count,
+                },
+                applied: true,
+                reason_code: 0,
+            }
+        } else {
+            ScenarioParityTransitionResult {
+                state: ScenarioParityRuntimeState {
+                    evaluated_flow_count: state.evaluated_flow_count + 1,
+                    passed_flow_count: state.passed_flow_count,
+                    failed_flow_count: state.failed_flow_count + 1,
+                    lobby_enter_pass_count: state.lobby_enter_pass_count,
+                    room_start_pass_count: state.room_start_pass_count,
+                    task_reply_pass_count: state.task_reply_pass_count,
+                    recycle_room_pass_count: state.recycle_room_pass_count,
+                    robot_add_pass_count: state.robot_add_pass_count,
+                    ready_state_pass_count: state.ready_state_pass_count,
+                    dispatch_task_pass_count: state.dispatch_task_pass_count,
+                    keep_alive_pass_count: state.keep_alive_pass_count,
+                    last_flow_code: flow_code,
+                    last_failed_flow_code: flow_code,
+                    rejected_operation_count: state.rejected_operation_count + 1,
+                },
+                applied: false,
+                reason_code: scenario_parity_failure_reason_code(flow_code),
+            }
+        }
+    }
+}
+
+def apply_scenario_parity_lobby_enter(
+    state: ScenarioParityRuntimeState,
+    can_enter_room: bool,
+    can_join_room: bool,
+    expected_flow: bool,
+) -> ScenarioParityTransitionResult
+{
+    let actual = can_complete_lobby_enter_flow(can_enter_room, can_join_room);
+    apply_scenario_parity_evaluation(state, 1, actual == expected_flow)
+}
+
+def apply_scenario_parity_room_start(
+    state: ScenarioParityRuntimeState,
+    can_create_room: bool,
+    can_join_room: bool,
+    can_start_room: bool,
+    expected_flow: bool,
+) -> ScenarioParityTransitionResult
+{
+    let actual = can_complete_room_start_flow(can_create_room, can_join_room, can_start_room);
+    apply_scenario_parity_evaluation(state, 2, actual == expected_flow)
+}
+
+def apply_scenario_parity_task_reply(
+    state: ScenarioParityRuntimeState,
+    can_attach_task: bool,
+    should_track_request_id: bool,
+    can_lookup_request_mapping: bool,
+    expected_flow: bool,
+) -> ScenarioParityTransitionResult
+{
+    let actual = should_enqueue_task_reply_flow(
+        can_attach_task,
+        should_track_request_id,
+        can_lookup_request_mapping,
+    );
+    apply_scenario_parity_evaluation(state, 3, actual == expected_flow)
+}
+
+def apply_scenario_parity_recycle_room(
+    state: ScenarioParityRuntimeState,
+    should_mark_abandoned: bool,
+    should_remove_room: bool,
+    expected_flow: bool,
+) -> ScenarioParityTransitionResult
+{
+    let actual = should_recycle_abandoned_room_flow(should_mark_abandoned, should_remove_room);
+    apply_scenario_parity_evaluation(state, 4, actual == expected_flow)
+}
+
+def apply_scenario_parity_robot_add(
+    state: ScenarioParityRuntimeState,
+    can_add_robot: bool,
+    room_outdated: bool,
+    expected_flow: bool,
+) -> ScenarioParityTransitionResult
+{
+    let actual = can_add_robot_flow(can_add_robot, room_outdated);
+    apply_scenario_parity_evaluation(state, 5, actual == expected_flow)
+}
+
+def apply_scenario_parity_ready_state(
+    state: ScenarioParityRuntimeState,
+    room_started: bool,
+    state_code: i64,
+    expected_flow: bool,
+) -> ScenarioParityTransitionResult
+{
+    let actual = should_emit_ready_state_change(room_started, state_code);
+    apply_scenario_parity_evaluation(state, 6, actual == expected_flow)
+}
+
+def apply_scenario_parity_dispatch_task(
+    state: ScenarioParityRuntimeState,
+    can_dispatch_lobby_task: bool,
+    can_attach_task: bool,
+    expected_flow: bool,
+) -> ScenarioParityTransitionResult
+{
+    let actual = can_dispatch_lobby_task_flow(can_dispatch_lobby_task, can_attach_task);
+    apply_scenario_parity_evaluation(state, 7, actual == expected_flow)
+}
+
+def apply_scenario_parity_keep_alive(
+    state: ScenarioParityRuntimeState,
+    player_count: i64,
+    online_socket_count: i64,
+    expected_flow: bool,
+) -> ScenarioParityTransitionResult
+requires player_count >= 0 && online_socket_count >= 0
+{
+    let actual = can_keep_room_alive(player_count, online_socket_count);
+    apply_scenario_parity_evaluation(state, 8, actual == expected_flow)
+}
+
+def should_scenario_parity_alert(state: ScenarioParityRuntimeState, max_failed_count: i64) -> bool
+requires max_failed_count >= 0
+{
+    state.failed_flow_count >= max_failed_count
+}
+
+def can_scenario_parity_emit_pass_report(state: ScenarioParityRuntimeState) -> bool
+{
+    state.passed_flow_count > 0
+}
