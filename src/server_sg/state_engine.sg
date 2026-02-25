@@ -515,3 +515,230 @@ def can_lookup_reply_mapping(state: TaskRuntimeState) -> bool
 {
     state.pending_reply_count > 0
 }
+
+struct RuntimeEngineState {
+    room: RoomRuntimeState,
+    player: PlayerRuntimeState,
+    task: TaskRuntimeState,
+}
+
+struct RuntimeEngineResult {
+    state: RuntimeEngineState,
+    applied: bool,
+    reason_code: i64,
+    event_code: i64,
+}
+
+def bool_from_flag(flag: i64) -> bool
+{
+    flag != 0
+}
+
+def normalize_non_negative_i64(value: i64) -> i64
+{
+    if value < 0 {
+        0
+    } else {
+        value
+    }
+}
+
+def new_runtime_engine_state(
+    room_capacity: i64,
+    owner_conn_id: i64,
+    first_session_id: i64,
+    conn_id: i64,
+    initial_ttl: i64,
+    initial_state_code: i64,
+    start_task_id: i64,
+) -> RuntimeEngineState
+{
+    RuntimeEngineState {
+        room: new_room_runtime_state(room_capacity, owner_conn_id, first_session_id),
+        player: new_player_runtime_state(conn_id, initial_ttl, initial_state_code),
+        task: new_task_runtime_state(start_task_id),
+    }
+}
+
+def apply_runtime_event(state: RuntimeEngineState, event_code: i64, arg1: i64, arg2: i64) -> RuntimeEngineResult
+{
+    if event_code == 1 {
+        let room_result = apply_room_join(state.room, bool_from_flag(arg1));
+        RuntimeEngineResult {
+            state: RuntimeEngineState {
+                room: room_result.state,
+                player: state.player,
+                task: state.task,
+            },
+            applied: room_result.applied,
+            reason_code: room_result.reason_code,
+            event_code: event_code,
+        }
+    } else if event_code == 2 {
+        let room_result = apply_room_leave(state.room, bool_from_flag(arg1));
+        RuntimeEngineResult {
+            state: RuntimeEngineState {
+                room: room_result.state,
+                player: state.player,
+                task: state.task,
+            },
+            applied: room_result.applied,
+            reason_code: room_result.reason_code,
+            event_code: event_code,
+        }
+    } else if event_code == 3 {
+        let room_result = apply_room_start(state.room);
+        RuntimeEngineResult {
+            state: RuntimeEngineState {
+                room: room_result.state,
+                player: state.player,
+                task: state.task,
+            },
+            applied: room_result.applied,
+            reason_code: room_result.reason_code,
+            event_code: event_code,
+        }
+    } else if event_code == 4 {
+        let room_result = apply_room_mark_outdated(state.room, bool_from_flag(arg1));
+        RuntimeEngineResult {
+            state: RuntimeEngineState {
+                room: room_result.state,
+                player: state.player,
+                task: state.task,
+            },
+            applied: room_result.applied,
+            reason_code: room_result.reason_code,
+            event_code: event_code,
+        }
+    } else if event_code == 5 {
+        let player_result = apply_player_heartbeat(state.player, normalize_non_negative_i64(arg1));
+        RuntimeEngineResult {
+            state: RuntimeEngineState {
+                room: state.room,
+                player: player_result.state,
+                task: state.task,
+            },
+            applied: player_result.applied,
+            reason_code: player_result.reason_code,
+            event_code: event_code,
+        }
+    } else if event_code == 6 {
+        let player_result = apply_player_disconnect(state.player);
+        RuntimeEngineResult {
+            state: RuntimeEngineState {
+                room: state.room,
+                player: player_result.state,
+                task: state.task,
+            },
+            applied: player_result.applied,
+            reason_code: player_result.reason_code,
+            event_code: event_code,
+        }
+    } else if event_code == 7 {
+        let task_result = apply_issue_task(state.task, arg1, bool_from_flag(arg2));
+        RuntimeEngineResult {
+            state: RuntimeEngineState {
+                room: state.room,
+                player: state.player,
+                task: task_result.state,
+            },
+            applied: task_result.applied,
+            reason_code: task_result.reason_code,
+            event_code: event_code,
+        }
+    } else if event_code == 8 {
+        let task_result = apply_finish_task(state.task, bool_from_flag(arg1));
+        RuntimeEngineResult {
+            state: RuntimeEngineState {
+                room: state.room,
+                player: state.player,
+                task: task_result.state,
+            },
+            applied: task_result.applied,
+            reason_code: task_result.reason_code,
+            event_code: event_code,
+        }
+    } else if event_code == 9 {
+        let task_result = apply_abort_all_tasks(state.task);
+        RuntimeEngineResult {
+            state: RuntimeEngineState {
+                room: state.room,
+                player: state.player,
+                task: task_result.state,
+            },
+            applied: task_result.applied,
+            reason_code: task_result.reason_code,
+            event_code: event_code,
+        }
+    } else if event_code == 10 {
+        let player_result = apply_player_enter_game(state.player);
+        RuntimeEngineResult {
+            state: RuntimeEngineState {
+                room: state.room,
+                player: player_result.state,
+                task: state.task,
+            },
+            applied: player_result.applied,
+            reason_code: player_result.reason_code,
+            event_code: event_code,
+        }
+    } else if event_code == 11 {
+        let player_result = apply_player_set_dead(state.player, bool_from_flag(arg1));
+        RuntimeEngineResult {
+            state: RuntimeEngineState {
+                room: state.room,
+                player: player_result.state,
+                task: state.task,
+            },
+            applied: player_result.applied,
+            reason_code: player_result.reason_code,
+            event_code: event_code,
+        }
+    } else if event_code == 12 {
+        let room_result = apply_room_set_lua_ref_count(state.room, normalize_non_negative_i64(arg1));
+        RuntimeEngineResult {
+            state: RuntimeEngineState {
+                room: room_result.state,
+                player: state.player,
+                task: state.task,
+            },
+            applied: room_result.applied,
+            reason_code: room_result.reason_code,
+            event_code: event_code,
+        }
+    } else if event_code == 13 {
+        let player_result = apply_player_ttl_tick(state.player);
+        RuntimeEngineResult {
+            state: RuntimeEngineState {
+                room: state.room,
+                player: player_result.state,
+                task: state.task,
+            },
+            applied: player_result.applied,
+            reason_code: player_result.reason_code,
+            event_code: event_code,
+        }
+    } else {
+        RuntimeEngineResult {
+            state: state,
+            applied: false,
+            reason_code: 7999,
+            event_code: event_code,
+        }
+    }
+}
+
+def can_runtime_dispatch_rpc(state: RuntimeEngineState) -> bool
+{
+    can_dispatch_room_rpc(state.room) && can_player_accept_request(state.player)
+}
+
+def should_runtime_collect_gc(state: RuntimeEngineState) -> bool
+{
+    should_collect_room_runtime(state.room) && can_gc_user_task_bucket(state.task)
+}
+
+def should_runtime_emit_heartbeat_warning(state: RuntimeEngineState) -> bool
+{
+    state.player.state_code != 6 && state.player.ttl <= 1
+}
