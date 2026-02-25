@@ -922,3 +922,139 @@ def should_runtime_emit_io(dispatch: RuntimeIoDispatch) -> bool
 {
     dispatch.has_op && dispatch.op.kind != runtime_io_kind_none()
 }
+
+struct RuntimeHostState {
+    outbound_message_count: i64,
+    db_write_count: i64,
+    gc_sweep_count: i64,
+    warning_count: i64,
+    last_subject_id: i64,
+    last_io_kind: i64,
+}
+
+struct RuntimeHostResult {
+    state: RuntimeHostState,
+    applied: bool,
+    reason_code: i64,
+}
+
+struct RuntimeStepResult {
+    engine_result: RuntimeEngineResult,
+    io_dispatch: RuntimeIoDispatch,
+    host_result: RuntimeHostResult,
+}
+
+def new_runtime_host_state() -> RuntimeHostState
+{
+    RuntimeHostState {
+        outbound_message_count: 0,
+        db_write_count: 0,
+        gc_sweep_count: 0,
+        warning_count: 0,
+        last_subject_id: 0,
+        last_io_kind: runtime_io_kind_none(),
+    }
+}
+
+def apply_runtime_io_dispatch_to_host(host: RuntimeHostState, dispatch: RuntimeIoDispatch) -> RuntimeHostResult
+{
+    if !should_runtime_emit_io(dispatch) {
+        RuntimeHostResult {
+            state: host,
+            applied: false,
+            reason_code: 7501,
+        }
+    } else {
+        let op = dispatch.op;
+        let next_outbound = if op.kind == runtime_io_kind_room_changed()
+            || op.kind == runtime_io_kind_room_started()
+            || op.kind == runtime_io_kind_heartbeat_ack()
+            || op.kind == runtime_io_kind_player_disconnected()
+        {
+            host.outbound_message_count + 1
+        } else {
+            host.outbound_message_count
+        };
+
+        let next_db_write = if op.kind == runtime_io_kind_task_issued()
+            || op.kind == runtime_io_kind_task_finished()
+        {
+            host.db_write_count + 1
+        } else {
+            host.db_write_count
+        };
+
+        let next_gc_sweep = if op.kind == runtime_io_kind_gc_suggested() {
+            host.gc_sweep_count + 1
+        } else {
+            host.gc_sweep_count
+        };
+
+        RuntimeHostResult {
+            state: RuntimeHostState {
+                outbound_message_count: next_outbound,
+                db_write_count: next_db_write,
+                gc_sweep_count: next_gc_sweep,
+                warning_count: host.warning_count,
+                last_subject_id: op.subject_id,
+                last_io_kind: op.kind,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_runtime_warning_tick(host: RuntimeHostState, should_warn: bool) -> RuntimeHostResult
+{
+    if !should_warn {
+        RuntimeHostResult {
+            state: host,
+            applied: false,
+            reason_code: 7502,
+        }
+    } else {
+        RuntimeHostResult {
+            state: RuntimeHostState {
+                outbound_message_count: host.outbound_message_count,
+                db_write_count: host.db_write_count,
+                gc_sweep_count: host.gc_sweep_count,
+                warning_count: host.warning_count + 1,
+                last_subject_id: host.last_subject_id,
+                last_io_kind: host.last_io_kind,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_runtime_step(
+    runtime_state: RuntimeEngineState,
+    host_state: RuntimeHostState,
+    event_code: i64,
+    arg1: i64,
+    arg2: i64,
+) -> RuntimeStepResult
+{
+    let engine_result = apply_runtime_event(runtime_state, event_code, arg1, arg2);
+    let io_dispatch = build_runtime_io_dispatch(runtime_state, engine_result);
+    let io_result = apply_runtime_io_dispatch_to_host(host_state, io_dispatch);
+    let warning_result = apply_runtime_warning_tick(io_result.state, should_runtime_emit_heartbeat_warning(engine_result.state));
+    let final_host_result = if warning_result.applied {
+        warning_result
+    } else {
+        io_result
+    };
+
+    RuntimeStepResult {
+        engine_result: engine_result,
+        io_dispatch: io_dispatch,
+        host_result: final_host_result,
+    }
+}
+
+def should_runtime_shutdown(host_state: RuntimeHostState) -> bool
+{
+    host_state.warning_count >= 3
+}
