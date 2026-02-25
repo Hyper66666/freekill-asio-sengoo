@@ -42,3 +42,306 @@ ensures result >= 0
 {
     now_ms - start_ms
 }
+
+struct ServerRuntimeState {
+    config_capacity: i64,
+    listen_port: i64,
+    running: bool,
+    connected_player_count: i64,
+    heartbeat_ttl: i64,
+    uptime_ms: i64,
+    rejected_operation_count: i64,
+    shutdown_signal_count: i64,
+}
+
+struct ServerRuntimeTransitionResult {
+    state: ServerRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_server_runtime_state(
+    config: ServerConfig,
+    raw_port: i64,
+    fallback_port: i64,
+    initial_heartbeat_ttl: i64,
+) -> ServerRuntimeState
+requires fallback_port >= 1024 && fallback_port <= 65535 && initial_heartbeat_ttl >= 0
+{
+    ServerRuntimeState {
+        config_capacity: config.capacity,
+        listen_port: normalize_cli_port(raw_port, fallback_port),
+        running: false,
+        connected_player_count: 0,
+        heartbeat_ttl: initial_heartbeat_ttl,
+        uptime_ms: 0,
+        rejected_operation_count: 0,
+        shutdown_signal_count: 0,
+    }
+}
+
+def apply_server_start(
+    state: ServerRuntimeState,
+    raw_port: i64,
+    fallback_port: i64,
+) -> ServerRuntimeTransitionResult
+requires fallback_port >= 1024 && fallback_port <= 65535
+{
+    if state.running {
+        ServerRuntimeTransitionResult {
+            state: ServerRuntimeState {
+                config_capacity: state.config_capacity,
+                listen_port: state.listen_port,
+                running: state.running,
+                connected_player_count: state.connected_player_count,
+                heartbeat_ttl: state.heartbeat_ttl,
+                uptime_ms: state.uptime_ms,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                shutdown_signal_count: state.shutdown_signal_count,
+            },
+            applied: false,
+            reason_code: 9901,
+        }
+    } else {
+        if state.config_capacity <= 0 {
+            ServerRuntimeTransitionResult {
+                state: ServerRuntimeState {
+                    config_capacity: state.config_capacity,
+                    listen_port: state.listen_port,
+                    running: state.running,
+                    connected_player_count: state.connected_player_count,
+                    heartbeat_ttl: state.heartbeat_ttl,
+                    uptime_ms: state.uptime_ms,
+                    rejected_operation_count: state.rejected_operation_count + 1,
+                    shutdown_signal_count: state.shutdown_signal_count,
+                },
+                applied: false,
+                reason_code: 9902,
+            }
+        } else {
+            ServerRuntimeTransitionResult {
+                state: ServerRuntimeState {
+                    config_capacity: state.config_capacity,
+                    listen_port: normalize_cli_port(raw_port, fallback_port),
+                    running: true,
+                    connected_player_count: state.connected_player_count,
+                    heartbeat_ttl: state.heartbeat_ttl,
+                    uptime_ms: state.uptime_ms,
+                    rejected_operation_count: state.rejected_operation_count,
+                    shutdown_signal_count: state.shutdown_signal_count,
+                },
+                applied: true,
+                reason_code: 0,
+            }
+        }
+    }
+}
+
+def apply_server_accept_player(
+    state: ServerRuntimeState,
+    player_online: bool,
+) -> ServerRuntimeTransitionResult
+{
+    if !state.running {
+        ServerRuntimeTransitionResult {
+            state: ServerRuntimeState {
+                config_capacity: state.config_capacity,
+                listen_port: state.listen_port,
+                running: state.running,
+                connected_player_count: state.connected_player_count,
+                heartbeat_ttl: state.heartbeat_ttl,
+                uptime_ms: state.uptime_ms,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                shutdown_signal_count: state.shutdown_signal_count,
+            },
+            applied: false,
+            reason_code: 9903,
+        }
+    } else {
+        if !player_online {
+            ServerRuntimeTransitionResult {
+                state: ServerRuntimeState {
+                    config_capacity: state.config_capacity,
+                    listen_port: state.listen_port,
+                    running: state.running,
+                    connected_player_count: state.connected_player_count,
+                    heartbeat_ttl: state.heartbeat_ttl,
+                    uptime_ms: state.uptime_ms,
+                    rejected_operation_count: state.rejected_operation_count + 1,
+                    shutdown_signal_count: state.shutdown_signal_count,
+                },
+                applied: false,
+                reason_code: 9904,
+            }
+        } else {
+            if state.connected_player_count >= state.config_capacity {
+                ServerRuntimeTransitionResult {
+                    state: ServerRuntimeState {
+                        config_capacity: state.config_capacity,
+                        listen_port: state.listen_port,
+                        running: state.running,
+                        connected_player_count: state.connected_player_count,
+                        heartbeat_ttl: state.heartbeat_ttl,
+                        uptime_ms: state.uptime_ms,
+                        rejected_operation_count: state.rejected_operation_count + 1,
+                        shutdown_signal_count: state.shutdown_signal_count,
+                    },
+                    applied: false,
+                    reason_code: 9905,
+                }
+            } else {
+                ServerRuntimeTransitionResult {
+                    state: ServerRuntimeState {
+                        config_capacity: state.config_capacity,
+                        listen_port: state.listen_port,
+                        running: state.running,
+                        connected_player_count: state.connected_player_count + 1,
+                        heartbeat_ttl: state.heartbeat_ttl,
+                        uptime_ms: state.uptime_ms,
+                        rejected_operation_count: state.rejected_operation_count,
+                        shutdown_signal_count: state.shutdown_signal_count,
+                    },
+                    applied: true,
+                    reason_code: 0,
+                }
+            }
+        }
+    }
+}
+
+def apply_server_disconnect_player(state: ServerRuntimeState) -> ServerRuntimeTransitionResult
+{
+    if state.connected_player_count == 0 {
+        ServerRuntimeTransitionResult {
+            state: ServerRuntimeState {
+                config_capacity: state.config_capacity,
+                listen_port: state.listen_port,
+                running: state.running,
+                connected_player_count: state.connected_player_count,
+                heartbeat_ttl: state.heartbeat_ttl,
+                uptime_ms: state.uptime_ms,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                shutdown_signal_count: state.shutdown_signal_count,
+            },
+            applied: false,
+            reason_code: 9906,
+        }
+    } else {
+        ServerRuntimeTransitionResult {
+            state: ServerRuntimeState {
+                config_capacity: state.config_capacity,
+                listen_port: state.listen_port,
+                running: state.running,
+                connected_player_count: state.connected_player_count - 1,
+                heartbeat_ttl: state.heartbeat_ttl,
+                uptime_ms: state.uptime_ms,
+                rejected_operation_count: state.rejected_operation_count,
+                shutdown_signal_count: state.shutdown_signal_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_server_heartbeat_tick(state: ServerRuntimeState) -> ServerRuntimeTransitionResult
+{
+    if !state.running {
+        ServerRuntimeTransitionResult {
+            state: ServerRuntimeState {
+                config_capacity: state.config_capacity,
+                listen_port: state.listen_port,
+                running: state.running,
+                connected_player_count: state.connected_player_count,
+                heartbeat_ttl: state.heartbeat_ttl,
+                uptime_ms: state.uptime_ms,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                shutdown_signal_count: state.shutdown_signal_count,
+            },
+            applied: false,
+            reason_code: 9903,
+        }
+    } else {
+        if state.heartbeat_ttl == 0 {
+            ServerRuntimeTransitionResult {
+                state: ServerRuntimeState {
+                    config_capacity: state.config_capacity,
+                    listen_port: state.listen_port,
+                    running: state.running,
+                    connected_player_count: state.connected_player_count,
+                    heartbeat_ttl: state.heartbeat_ttl,
+                    uptime_ms: state.uptime_ms,
+                    rejected_operation_count: state.rejected_operation_count + 1,
+                    shutdown_signal_count: state.shutdown_signal_count + 1,
+                },
+                applied: false,
+                reason_code: 9907,
+            }
+        } else {
+            ServerRuntimeTransitionResult {
+                state: ServerRuntimeState {
+                    config_capacity: state.config_capacity,
+                    listen_port: state.listen_port,
+                    running: state.running,
+                    connected_player_count: state.connected_player_count,
+                    heartbeat_ttl: next_heartbeat_ttl(state.heartbeat_ttl),
+                    uptime_ms: state.uptime_ms,
+                    rejected_operation_count: state.rejected_operation_count,
+                    shutdown_signal_count: state.shutdown_signal_count,
+                },
+                applied: true,
+                reason_code: 0,
+            }
+        }
+    }
+}
+
+def apply_server_uptime_sample(
+    state: ServerRuntimeState,
+    start_ms: i64,
+    now_ms: i64,
+) -> ServerRuntimeTransitionResult
+requires now_ms >= start_ms
+{
+    if state.running {
+        ServerRuntimeTransitionResult {
+            state: ServerRuntimeState {
+                config_capacity: state.config_capacity,
+                listen_port: state.listen_port,
+                running: state.running,
+                connected_player_count: state.connected_player_count,
+                heartbeat_ttl: state.heartbeat_ttl,
+                uptime_ms: compute_uptime_ms(start_ms, now_ms),
+                rejected_operation_count: state.rejected_operation_count,
+                shutdown_signal_count: state.shutdown_signal_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        ServerRuntimeTransitionResult {
+            state: ServerRuntimeState {
+                config_capacity: state.config_capacity,
+                listen_port: state.listen_port,
+                running: state.running,
+                connected_player_count: state.connected_player_count,
+                heartbeat_ttl: state.heartbeat_ttl,
+                uptime_ms: state.uptime_ms,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                shutdown_signal_count: state.shutdown_signal_count,
+            },
+            applied: false,
+            reason_code: 9903,
+        }
+    }
+}
+
+def can_server_accept_more(state: ServerRuntimeState) -> bool
+{
+    state.running && state.connected_player_count < state.config_capacity
+}
+
+def should_server_shutdown(state: ServerRuntimeState) -> bool
+{
+    state.running && state.heartbeat_ttl == 0
+}

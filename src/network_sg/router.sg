@@ -25,3 +25,130 @@ ensures result >= 0
     }
     packet_type
 }
+
+struct RouterRuntimeState {
+    request_count: i64,
+    reply_count: i64,
+    notification_count: i64,
+    compressed_notification_count: i64,
+    dropped_packet_count: i64,
+    rejected_operation_count: i64,
+}
+
+struct RouterTransitionResult {
+    state: RouterRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_router_runtime_state() -> RouterRuntimeState
+{
+    RouterRuntimeState {
+        request_count: 0,
+        reply_count: 0,
+        notification_count: 0,
+        compressed_notification_count: 0,
+        dropped_packet_count: 0,
+        rejected_operation_count: 0,
+    }
+}
+
+def apply_router_dispatch(
+    state: RouterRuntimeState,
+    packet_type: i64,
+    compressed: bool,
+    from_server: bool,
+    to_client: bool,
+) -> RouterTransitionResult
+{
+    if is_request_type(packet_type) {
+        RouterTransitionResult {
+            state: RouterRuntimeState {
+                request_count: state.request_count + 1,
+                reply_count: state.reply_count,
+                notification_count: state.notification_count,
+                compressed_notification_count: state.compressed_notification_count,
+                dropped_packet_count: state.dropped_packet_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        if is_reply_type(packet_type) {
+            RouterTransitionResult {
+                state: RouterRuntimeState {
+                    request_count: state.request_count,
+                    reply_count: state.reply_count + 1,
+                    notification_count: state.notification_count,
+                    compressed_notification_count: state.compressed_notification_count,
+                    dropped_packet_count: state.dropped_packet_count,
+                    rejected_operation_count: state.rejected_operation_count,
+                },
+                applied: true,
+                reason_code: 0,
+            }
+        } else {
+            if is_notification_type(packet_type) {
+                if from_server || to_client {
+                    let _normalized_type = build_notification_type(compressed, from_server, to_client);
+                    let next_compressed = if compressed {
+                        state.compressed_notification_count + 1
+                    } else {
+                        state.compressed_notification_count
+                    };
+                    RouterTransitionResult {
+                        state: RouterRuntimeState {
+                            request_count: state.request_count,
+                            reply_count: state.reply_count,
+                            notification_count: state.notification_count + 1,
+                            compressed_notification_count: next_compressed,
+                            dropped_packet_count: state.dropped_packet_count,
+                            rejected_operation_count: state.rejected_operation_count,
+                        },
+                        applied: true,
+                        reason_code: 0,
+                    }
+                } else {
+                    RouterTransitionResult {
+                        state: RouterRuntimeState {
+                            request_count: state.request_count,
+                            reply_count: state.reply_count,
+                            notification_count: state.notification_count,
+                            compressed_notification_count: state.compressed_notification_count,
+                            dropped_packet_count: state.dropped_packet_count + 1,
+                            rejected_operation_count: state.rejected_operation_count + 1,
+                        },
+                        applied: false,
+                        reason_code: 9701,
+                    }
+                }
+            } else {
+                RouterTransitionResult {
+                    state: RouterRuntimeState {
+                        request_count: state.request_count,
+                        reply_count: state.reply_count,
+                        notification_count: state.notification_count,
+                        compressed_notification_count: state.compressed_notification_count,
+                        dropped_packet_count: state.dropped_packet_count + 1,
+                        rejected_operation_count: state.rejected_operation_count + 1,
+                    },
+                    applied: false,
+                    reason_code: 9702,
+                }
+            }
+        }
+    }
+}
+
+def should_router_backpressure(state: RouterRuntimeState, max_dispatched_packets: i64) -> bool
+requires max_dispatched_packets >= 0
+{
+    let total = state.request_count + state.reply_count + state.notification_count;
+    total >= max_dispatched_packets
+}
+
+def can_router_emit_notifications(state: RouterRuntimeState) -> bool
+{
+    state.notification_count > 0
+}

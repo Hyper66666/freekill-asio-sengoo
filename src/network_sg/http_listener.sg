@@ -26,3 +26,111 @@ ensures result == true
 {
     true
 }
+
+struct HttpListenerRuntimeState {
+    ok_200_count: i64,
+    not_found_404_count: i64,
+    method_not_allowed_405_count: i64,
+    upgrade_required_426_count: i64,
+    close_after_response_count: i64,
+    rejected_request_count: i64,
+}
+
+struct HttpListenerTransitionResult {
+    state: HttpListenerRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_http_listener_runtime_state() -> HttpListenerRuntimeState
+{
+    HttpListenerRuntimeState {
+        ok_200_count: 0,
+        not_found_404_count: 0,
+        method_not_allowed_405_count: 0,
+        upgrade_required_426_count: 0,
+        close_after_response_count: 0,
+        rejected_request_count: 0,
+    }
+}
+
+def apply_http_listener_request(
+    state: HttpListenerRuntimeState,
+    method_code: i64,
+    route_code: i64,
+    has_upgrade: bool,
+    keep_alive: bool,
+) -> HttpListenerTransitionResult
+requires method_code >= 0 && route_code >= 0
+{
+    let status = classify_http_request(method_code, route_code, has_upgrade);
+    let should_close = should_close_after_response(keep_alive);
+    let next_close_count = if should_close {
+        state.close_after_response_count + 1
+    } else {
+        state.close_after_response_count
+    };
+
+    if status == 200 {
+        HttpListenerTransitionResult {
+            state: HttpListenerRuntimeState {
+                ok_200_count: state.ok_200_count + 1,
+                not_found_404_count: state.not_found_404_count,
+                method_not_allowed_405_count: state.method_not_allowed_405_count,
+                upgrade_required_426_count: state.upgrade_required_426_count,
+                close_after_response_count: next_close_count,
+                rejected_request_count: state.rejected_request_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        let next_404 = if status == 404 {
+            state.not_found_404_count + 1
+        } else {
+            state.not_found_404_count
+        };
+        let next_405 = if status == 405 {
+            state.method_not_allowed_405_count + 1
+        } else {
+            state.method_not_allowed_405_count
+        };
+        let next_426 = if status == 426 {
+            state.upgrade_required_426_count + 1
+        } else {
+            state.upgrade_required_426_count
+        };
+        let reason = if status == 404 {
+            9801
+        } else {
+            if status == 405 {
+                9802
+            } else {
+                9803
+            }
+        };
+        HttpListenerTransitionResult {
+            state: HttpListenerRuntimeState {
+                ok_200_count: state.ok_200_count,
+                not_found_404_count: next_404,
+                method_not_allowed_405_count: next_405,
+                upgrade_required_426_count: next_426,
+                close_after_response_count: next_close_count,
+                rejected_request_count: state.rejected_request_count + 1,
+            },
+            applied: false,
+            reason_code: reason,
+        }
+    }
+}
+
+def should_http_listener_alert(state: HttpListenerRuntimeState, max_rejected_requests: i64) -> bool
+requires max_rejected_requests >= 0
+{
+    state.rejected_request_count >= max_rejected_requests
+}
+
+def can_http_listener_keep_connection_open(state: HttpListenerRuntimeState) -> bool
+{
+    state.close_after_response_count == 0
+}

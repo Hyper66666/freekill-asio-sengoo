@@ -35,3 +35,139 @@ ensures result >= 0 && result <= 2
         }
     }
 }
+
+struct ServerSocketRuntimeState {
+    listen_port: i64,
+    accepted_session_count: i64,
+    probe_unknown_count: i64,
+    probe_ok_count: i64,
+    probe_fail_count: i64,
+    rejected_operation_count: i64,
+    last_session_id: i64,
+}
+
+struct ServerSocketTransitionResult {
+    state: ServerSocketRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_server_socket_runtime_state(default_port: i64) -> ServerSocketRuntimeState
+requires default_port >= 1024 && default_port <= 65535
+{
+    ServerSocketRuntimeState {
+        listen_port: default_port,
+        accepted_session_count: 0,
+        probe_unknown_count: 0,
+        probe_ok_count: 0,
+        probe_fail_count: 0,
+        rejected_operation_count: 0,
+        last_session_id: 0,
+    }
+}
+
+def apply_server_socket_accept(
+    state: ServerSocketRuntimeState,
+    requested_port: i64,
+    fallback_port: i64,
+    allow_accept: bool,
+) -> ServerSocketTransitionResult
+requires fallback_port >= 1024 && fallback_port <= 65535
+{
+    let next_port = normalize_listen_port(requested_port, fallback_port);
+    if allow_accept {
+        let next_session = next_session_id(state.last_session_id);
+        ServerSocketTransitionResult {
+            state: ServerSocketRuntimeState {
+                listen_port: next_port,
+                accepted_session_count: state.accepted_session_count + 1,
+                probe_unknown_count: state.probe_unknown_count,
+                probe_ok_count: state.probe_ok_count,
+                probe_fail_count: state.probe_fail_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_session_id: next_session,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        ServerSocketTransitionResult {
+            state: ServerSocketRuntimeState {
+                listen_port: next_port,
+                accepted_session_count: state.accepted_session_count,
+                probe_unknown_count: state.probe_unknown_count,
+                probe_ok_count: state.probe_ok_count,
+                probe_fail_count: state.probe_fail_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_session_id: state.last_session_id,
+            },
+            applied: false,
+            reason_code: 9501,
+        }
+    }
+}
+
+def apply_server_socket_udp_probe(
+    state: ServerSocketRuntimeState,
+    probe_code: i64,
+) -> ServerSocketTransitionResult
+requires probe_code >= 0
+{
+    let probe_class = classify_udp_probe(probe_code);
+    if probe_class == 1 {
+        ServerSocketTransitionResult {
+            state: ServerSocketRuntimeState {
+                listen_port: state.listen_port,
+                accepted_session_count: state.accepted_session_count,
+                probe_unknown_count: state.probe_unknown_count,
+                probe_ok_count: state.probe_ok_count + 1,
+                probe_fail_count: state.probe_fail_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_session_id: state.last_session_id,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        if probe_class == 2 {
+            ServerSocketTransitionResult {
+                state: ServerSocketRuntimeState {
+                    listen_port: state.listen_port,
+                    accepted_session_count: state.accepted_session_count,
+                    probe_unknown_count: state.probe_unknown_count,
+                    probe_ok_count: state.probe_ok_count,
+                    probe_fail_count: state.probe_fail_count + 1,
+                    rejected_operation_count: state.rejected_operation_count + 1,
+                    last_session_id: state.last_session_id,
+                },
+                applied: false,
+                reason_code: 9502,
+            }
+        } else {
+            ServerSocketTransitionResult {
+                state: ServerSocketRuntimeState {
+                    listen_port: state.listen_port,
+                    accepted_session_count: state.accepted_session_count,
+                    probe_unknown_count: state.probe_unknown_count + 1,
+                    probe_ok_count: state.probe_ok_count,
+                    probe_fail_count: state.probe_fail_count,
+                    rejected_operation_count: state.rejected_operation_count + 1,
+                    last_session_id: state.last_session_id,
+                },
+                applied: false,
+                reason_code: 9503,
+            }
+        }
+    }
+}
+
+def should_server_socket_backpressure(state: ServerSocketRuntimeState, max_session_count: i64) -> bool
+requires max_session_count >= 0
+{
+    state.accepted_session_count >= max_session_count
+}
+
+def can_server_socket_emit_probe_notice(state: ServerSocketRuntimeState) -> bool
+{
+    state.probe_fail_count > 0 || state.probe_unknown_count > 0
+}

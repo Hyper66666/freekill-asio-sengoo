@@ -12,3 +12,110 @@ requires item_len >= 0 && command_size >= 0 && payload_size >= 0
 {
     !is_valid_packet_shape(item_len, command_size, payload_size)
 }
+
+def packet_drop_reason_code(item_len: i64, command_size: i64, payload_size: i64) -> i64
+requires item_len >= 0 && command_size >= 0 && payload_size >= 0
+ensures result == 0 || result == 9601 || result == 9602 || result == 9603
+{
+    if item_len != 4 && item_len != 6 {
+        9601
+    } else {
+        if command_size > 2048 {
+            9602
+        } else {
+            if payload_size > 32768 {
+                9603
+            } else {
+                0
+            }
+        }
+    }
+}
+
+struct ClientSocketRuntimeState {
+    received_packet_count: i64,
+    dropped_packet_count: i64,
+    invalid_item_len_count: i64,
+    oversized_command_count: i64,
+    oversized_payload_count: i64,
+}
+
+struct ClientSocketTransitionResult {
+    state: ClientSocketRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_client_socket_runtime_state() -> ClientSocketRuntimeState
+{
+    ClientSocketRuntimeState {
+        received_packet_count: 0,
+        dropped_packet_count: 0,
+        invalid_item_len_count: 0,
+        oversized_command_count: 0,
+        oversized_payload_count: 0,
+    }
+}
+
+def apply_client_socket_receive_packet(
+    state: ClientSocketRuntimeState,
+    item_len: i64,
+    command_size: i64,
+    payload_size: i64,
+) -> ClientSocketTransitionResult
+requires item_len >= 0 && command_size >= 0 && payload_size >= 0
+{
+    let drop_reason = packet_drop_reason_code(item_len, command_size, payload_size);
+    if drop_reason == 0 {
+        ClientSocketTransitionResult {
+            state: ClientSocketRuntimeState {
+                received_packet_count: state.received_packet_count + 1,
+                dropped_packet_count: state.dropped_packet_count,
+                invalid_item_len_count: state.invalid_item_len_count,
+                oversized_command_count: state.oversized_command_count,
+                oversized_payload_count: state.oversized_payload_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        let next_invalid_len = if drop_reason == 9601 {
+            state.invalid_item_len_count + 1
+        } else {
+            state.invalid_item_len_count
+        };
+        let next_oversized_command = if drop_reason == 9602 {
+            state.oversized_command_count + 1
+        } else {
+            state.oversized_command_count
+        };
+        let next_oversized_payload = if drop_reason == 9603 {
+            state.oversized_payload_count + 1
+        } else {
+            state.oversized_payload_count
+        };
+        ClientSocketTransitionResult {
+            state: ClientSocketRuntimeState {
+                received_packet_count: state.received_packet_count,
+                dropped_packet_count: state.dropped_packet_count + 1,
+                invalid_item_len_count: next_invalid_len,
+                oversized_command_count: next_oversized_command,
+                oversized_payload_count: next_oversized_payload,
+            },
+            applied: false,
+            reason_code: drop_reason,
+        }
+    }
+}
+
+def should_client_socket_disconnect(state: ClientSocketRuntimeState, max_drop_count: i64) -> bool
+requires max_drop_count >= 0
+{
+    state.dropped_packet_count >= max_drop_count
+}
+
+def can_client_socket_read_more(state: ClientSocketRuntimeState, max_packets: i64) -> bool
+requires max_packets >= 0
+{
+    state.received_packet_count < max_packets
+}
