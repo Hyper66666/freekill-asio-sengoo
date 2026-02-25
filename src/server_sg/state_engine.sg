@@ -1195,3 +1195,523 @@ def apply_runtime_step_record(
         apply_runtime_step(runtime_state, host_state, event.code, event.arg1, event.arg2)
     }
 }
+
+struct RuntimeEventBufferState {
+    has_slot1: bool,
+    slot1: RuntimeEvent,
+    has_slot2: bool,
+    slot2: RuntimeEvent,
+    has_slot3: bool,
+    slot3: RuntimeEvent,
+    queued_count: i64,
+    dropped_count: i64,
+}
+
+struct RuntimeEventBufferResult {
+    state: RuntimeEventBufferState,
+    applied: bool,
+    reason_code: i64,
+    event: RuntimeEvent,
+}
+
+struct RuntimeEventDequeueResult {
+    state: RuntimeEventBufferState,
+    has_event: bool,
+    event: RuntimeEvent,
+    reason_code: i64,
+}
+
+struct RuntimeIoChannelState {
+    outbound_count: i64,
+    db_write_count: i64,
+    gc_suggest_count: i64,
+    no_op_count: i64,
+    rejected_dispatch_count: i64,
+    last_subject_id: i64,
+    last_io_kind: i64,
+}
+
+struct RuntimeIoChannelResult {
+    state: RuntimeIoChannelState,
+    applied: bool,
+    reason_code: i64,
+}
+
+struct RuntimeDriverState {
+    engine_state: RuntimeEngineState,
+    host_state: RuntimeHostState,
+    channel_state: RuntimeIoChannelState,
+    buffer_state: RuntimeEventBufferState,
+    step_count: i64,
+    idle_step_count: i64,
+    rejected_step_count: i64,
+}
+
+struct RuntimeDriverEnqueueResult {
+    state: RuntimeDriverState,
+    applied: bool,
+    reason_code: i64,
+}
+
+struct RuntimeDriverResult {
+    state: RuntimeDriverState,
+    applied: bool,
+    reason_code: i64,
+    step: RuntimeStepResult,
+    dequeued_event: RuntimeEvent,
+}
+
+def runtime_event_none() -> RuntimeEvent
+ensures result.code == 0 && result.arg1 == 0 && result.arg2 == 0
+{
+    RuntimeEvent {
+        code: 0,
+        arg1: 0,
+        arg2: 0,
+    }
+}
+
+def runtime_event_buffer_capacity() -> i64
+ensures result == 3
+{
+    3
+}
+
+def new_runtime_event_buffer_state() -> RuntimeEventBufferState
+{
+    RuntimeEventBufferState {
+        has_slot1: false,
+        slot1: runtime_event_none(),
+        has_slot2: false,
+        slot2: runtime_event_none(),
+        has_slot3: false,
+        slot3: runtime_event_none(),
+        queued_count: 0,
+        dropped_count: 0,
+    }
+}
+
+def is_runtime_event_buffer_empty(buffer: RuntimeEventBufferState) -> bool
+{
+    buffer.queued_count == 0
+}
+
+def is_runtime_event_buffer_full(buffer: RuntimeEventBufferState) -> bool
+{
+    buffer.queued_count >= runtime_event_buffer_capacity()
+}
+
+def enqueue_runtime_event(
+    buffer: RuntimeEventBufferState,
+    event: RuntimeEvent,
+) -> RuntimeEventBufferResult
+{
+    if !is_runtime_event_known(event.code) {
+        RuntimeEventBufferResult {
+            state: buffer,
+            applied: false,
+            reason_code: 7703,
+            event: event,
+        }
+    } else {
+        if is_runtime_event_buffer_full(buffer) {
+            RuntimeEventBufferResult {
+                state: RuntimeEventBufferState {
+                    has_slot1: buffer.has_slot1,
+                    slot1: buffer.slot1,
+                    has_slot2: buffer.has_slot2,
+                    slot2: buffer.slot2,
+                    has_slot3: buffer.has_slot3,
+                    slot3: buffer.slot3,
+                    queued_count: buffer.queued_count,
+                    dropped_count: buffer.dropped_count + 1,
+                },
+                applied: false,
+                reason_code: 7701,
+                event: event,
+            }
+        } else {
+            if !buffer.has_slot1 {
+                RuntimeEventBufferResult {
+                    state: RuntimeEventBufferState {
+                        has_slot1: true,
+                        slot1: event,
+                        has_slot2: buffer.has_slot2,
+                        slot2: buffer.slot2,
+                        has_slot3: buffer.has_slot3,
+                        slot3: buffer.slot3,
+                        queued_count: buffer.queued_count + 1,
+                        dropped_count: buffer.dropped_count,
+                    },
+                    applied: true,
+                    reason_code: 0,
+                    event: event,
+                }
+            } else if !buffer.has_slot2 {
+                RuntimeEventBufferResult {
+                    state: RuntimeEventBufferState {
+                        has_slot1: buffer.has_slot1,
+                        slot1: buffer.slot1,
+                        has_slot2: true,
+                        slot2: event,
+                        has_slot3: buffer.has_slot3,
+                        slot3: buffer.slot3,
+                        queued_count: buffer.queued_count + 1,
+                        dropped_count: buffer.dropped_count,
+                    },
+                    applied: true,
+                    reason_code: 0,
+                    event: event,
+                }
+            } else {
+                RuntimeEventBufferResult {
+                    state: RuntimeEventBufferState {
+                        has_slot1: buffer.has_slot1,
+                        slot1: buffer.slot1,
+                        has_slot2: buffer.has_slot2,
+                        slot2: buffer.slot2,
+                        has_slot3: true,
+                        slot3: event,
+                        queued_count: buffer.queued_count + 1,
+                        dropped_count: buffer.dropped_count,
+                    },
+                    applied: true,
+                    reason_code: 0,
+                    event: event,
+                }
+            }
+        }
+    }
+}
+
+def dequeue_runtime_event(buffer: RuntimeEventBufferState) -> RuntimeEventDequeueResult
+{
+    if is_runtime_event_buffer_empty(buffer) {
+        RuntimeEventDequeueResult {
+            state: buffer,
+            has_event: false,
+            event: runtime_event_none(),
+            reason_code: 7702,
+        }
+    } else {
+        if !buffer.has_slot1 {
+            RuntimeEventDequeueResult {
+                state: RuntimeEventBufferState {
+                    has_slot1: false,
+                    slot1: runtime_event_none(),
+                    has_slot2: false,
+                    slot2: runtime_event_none(),
+                    has_slot3: false,
+                    slot3: runtime_event_none(),
+                    queued_count: 0,
+                    dropped_count: buffer.dropped_count,
+                },
+                has_event: false,
+                event: runtime_event_none(),
+                reason_code: 7702,
+            }
+        } else {
+            if buffer.has_slot2 {
+                if buffer.has_slot3 {
+                    RuntimeEventDequeueResult {
+                        state: RuntimeEventBufferState {
+                            has_slot1: true,
+                            slot1: buffer.slot2,
+                            has_slot2: true,
+                            slot2: buffer.slot3,
+                            has_slot3: false,
+                            slot3: runtime_event_none(),
+                            queued_count: buffer.queued_count - 1,
+                            dropped_count: buffer.dropped_count,
+                        },
+                        has_event: true,
+                        event: buffer.slot1,
+                        reason_code: 0,
+                    }
+                } else {
+                    RuntimeEventDequeueResult {
+                        state: RuntimeEventBufferState {
+                            has_slot1: true,
+                            slot1: buffer.slot2,
+                            has_slot2: false,
+                            slot2: runtime_event_none(),
+                            has_slot3: false,
+                            slot3: runtime_event_none(),
+                            queued_count: buffer.queued_count - 1,
+                            dropped_count: buffer.dropped_count,
+                        },
+                        has_event: true,
+                        event: buffer.slot1,
+                        reason_code: 0,
+                    }
+                }
+            } else {
+                if buffer.has_slot3 {
+                    RuntimeEventDequeueResult {
+                        state: RuntimeEventBufferState {
+                            has_slot1: true,
+                            slot1: buffer.slot3,
+                            has_slot2: false,
+                            slot2: runtime_event_none(),
+                            has_slot3: false,
+                            slot3: runtime_event_none(),
+                            queued_count: buffer.queued_count - 1,
+                            dropped_count: buffer.dropped_count,
+                        },
+                        has_event: true,
+                        event: buffer.slot1,
+                        reason_code: 0,
+                    }
+                } else {
+                    RuntimeEventDequeueResult {
+                        state: RuntimeEventBufferState {
+                            has_slot1: false,
+                            slot1: runtime_event_none(),
+                            has_slot2: false,
+                            slot2: runtime_event_none(),
+                            has_slot3: false,
+                            slot3: runtime_event_none(),
+                            queued_count: buffer.queued_count - 1,
+                            dropped_count: buffer.dropped_count,
+                        },
+                        has_event: true,
+                        event: buffer.slot1,
+                        reason_code: 0,
+                    }
+                }
+            }
+        }
+    }
+}
+
+def new_runtime_io_channel_state() -> RuntimeIoChannelState
+{
+    RuntimeIoChannelState {
+        outbound_count: 0,
+        db_write_count: 0,
+        gc_suggest_count: 0,
+        no_op_count: 0,
+        rejected_dispatch_count: 0,
+        last_subject_id: 0,
+        last_io_kind: runtime_io_kind_none(),
+    }
+}
+
+def apply_runtime_io_dispatch_to_channel(
+    channel: RuntimeIoChannelState,
+    dispatch: RuntimeIoDispatch,
+) -> RuntimeIoChannelResult
+{
+    if !should_runtime_emit_io(dispatch) {
+        RuntimeIoChannelResult {
+            state: RuntimeIoChannelState {
+                outbound_count: channel.outbound_count,
+                db_write_count: channel.db_write_count,
+                gc_suggest_count: channel.gc_suggest_count,
+                no_op_count: channel.no_op_count + 1,
+                rejected_dispatch_count: channel.rejected_dispatch_count + 1,
+                last_subject_id: channel.last_subject_id,
+                last_io_kind: channel.last_io_kind,
+            },
+            applied: false,
+            reason_code: 7801,
+        }
+    } else {
+        let op = dispatch.op;
+        let next_outbound = if op.kind == runtime_io_kind_room_changed()
+            || op.kind == runtime_io_kind_room_started()
+            || op.kind == runtime_io_kind_heartbeat_ack()
+            || op.kind == runtime_io_kind_player_disconnected()
+        {
+            channel.outbound_count + 1
+        } else {
+            channel.outbound_count
+        };
+        let next_db_write = if op.kind == runtime_io_kind_task_issued()
+            || op.kind == runtime_io_kind_task_finished()
+        {
+            channel.db_write_count + 1
+        } else {
+            channel.db_write_count
+        };
+        let next_gc = if op.kind == runtime_io_kind_gc_suggested() {
+            channel.gc_suggest_count + 1
+        } else {
+            channel.gc_suggest_count
+        };
+
+        RuntimeIoChannelResult {
+            state: RuntimeIoChannelState {
+                outbound_count: next_outbound,
+                db_write_count: next_db_write,
+                gc_suggest_count: next_gc,
+                no_op_count: channel.no_op_count,
+                rejected_dispatch_count: channel.rejected_dispatch_count,
+                last_subject_id: op.subject_id,
+                last_io_kind: op.kind,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def new_runtime_driver_state(initial_engine_state: RuntimeEngineState) -> RuntimeDriverState
+{
+    RuntimeDriverState {
+        engine_state: initial_engine_state,
+        host_state: new_runtime_host_state(),
+        channel_state: new_runtime_io_channel_state(),
+        buffer_state: new_runtime_event_buffer_state(),
+        step_count: 0,
+        idle_step_count: 0,
+        rejected_step_count: 0,
+    }
+}
+
+def make_runtime_noop_step(
+    runtime_state: RuntimeEngineState,
+    host_state: RuntimeHostState,
+    reason_code: i64,
+    event_code: i64,
+) -> RuntimeStepResult
+{
+    let engine_result = RuntimeEngineResult {
+        state: runtime_state,
+        applied: false,
+        reason_code: reason_code,
+        event_code: event_code,
+    };
+    let io_dispatch = build_runtime_io_dispatch(runtime_state, engine_result);
+    RuntimeStepResult {
+        engine_result: engine_result,
+        io_dispatch: io_dispatch,
+        host_result: RuntimeHostResult {
+            state: host_state,
+            applied: false,
+            reason_code: 7501,
+        },
+    }
+}
+
+def enqueue_runtime_driver_event(
+    driver_state: RuntimeDriverState,
+    event: RuntimeEvent,
+) -> RuntimeDriverEnqueueResult
+{
+    let enqueue_result = enqueue_runtime_event(driver_state.buffer_state, event);
+    let rejected_next = if enqueue_result.applied {
+        driver_state.rejected_step_count
+    } else {
+        driver_state.rejected_step_count + 1
+    };
+    RuntimeDriverEnqueueResult {
+        state: RuntimeDriverState {
+            engine_state: driver_state.engine_state,
+            host_state: driver_state.host_state,
+            channel_state: driver_state.channel_state,
+            buffer_state: enqueue_result.state,
+            step_count: driver_state.step_count,
+            idle_step_count: driver_state.idle_step_count,
+            rejected_step_count: rejected_next,
+        },
+        applied: enqueue_result.applied,
+        reason_code: enqueue_result.reason_code,
+    }
+}
+
+def step_runtime_driver(driver_state: RuntimeDriverState) -> RuntimeDriverResult
+{
+    let dequeued = dequeue_runtime_event(driver_state.buffer_state);
+    if !dequeued.has_event {
+        RuntimeDriverResult {
+            state: RuntimeDriverState {
+                engine_state: driver_state.engine_state,
+                host_state: driver_state.host_state,
+                channel_state: driver_state.channel_state,
+                buffer_state: dequeued.state,
+                step_count: driver_state.step_count,
+                idle_step_count: driver_state.idle_step_count + 1,
+                rejected_step_count: driver_state.rejected_step_count,
+            },
+            applied: false,
+            reason_code: 7702,
+            step: make_runtime_noop_step(driver_state.engine_state, driver_state.host_state, 7702, 0),
+            dequeued_event: runtime_event_none(),
+        }
+    } else {
+        let step = apply_runtime_step_record(driver_state.engine_state, driver_state.host_state, dequeued.event);
+        let channel_result = apply_runtime_io_dispatch_to_channel(driver_state.channel_state, step.io_dispatch);
+        let rejected_next = if step.engine_result.applied {
+            driver_state.rejected_step_count
+        } else {
+            driver_state.rejected_step_count + 1
+        };
+        RuntimeDriverResult {
+            state: RuntimeDriverState {
+                engine_state: step.engine_result.state,
+                host_state: step.host_result.state,
+                channel_state: channel_result.state,
+                buffer_state: dequeued.state,
+                step_count: driver_state.step_count + 1,
+                idle_step_count: driver_state.idle_step_count,
+                rejected_step_count: rejected_next,
+            },
+            applied: step.engine_result.applied,
+            reason_code: step.engine_result.reason_code,
+            step: step,
+            dequeued_event: dequeued.event,
+        }
+    }
+}
+
+def push_and_step_runtime_driver(
+    driver_state: RuntimeDriverState,
+    event: RuntimeEvent,
+) -> RuntimeDriverResult
+{
+    let enqueue_result = enqueue_runtime_driver_event(driver_state, event);
+    if !enqueue_result.applied {
+        RuntimeDriverResult {
+            state: enqueue_result.state,
+            applied: false,
+            reason_code: enqueue_result.reason_code,
+            step: make_runtime_noop_step(
+                enqueue_result.state.engine_state,
+                enqueue_result.state.host_state,
+                enqueue_result.reason_code,
+                event.code,
+            ),
+            dequeued_event: runtime_event_none(),
+        }
+    } else {
+        step_runtime_driver(enqueue_result.state)
+    }
+}
+
+def apply_runtime_driver_warning_tick(
+    driver_state: RuntimeDriverState,
+    should_warn: bool,
+) -> RuntimeDriverState
+{
+    let warning_result = apply_runtime_warning_tick(driver_state.host_state, should_warn);
+    let next_host = if warning_result.applied {
+        warning_result.state
+    } else {
+        driver_state.host_state
+    };
+    RuntimeDriverState {
+        engine_state: driver_state.engine_state,
+        host_state: next_host,
+        channel_state: driver_state.channel_state,
+        buffer_state: driver_state.buffer_state,
+        step_count: driver_state.step_count,
+        idle_step_count: driver_state.idle_step_count,
+        rejected_step_count: driver_state.rejected_step_count,
+    }
+}
+
+def should_runtime_driver_shutdown(driver_state: RuntimeDriverState) -> bool
+{
+    should_runtime_shutdown(driver_state.host_state) || driver_state.buffer_state.dropped_count >= 3
+}
