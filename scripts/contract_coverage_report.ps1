@@ -143,7 +143,24 @@ function Get-SgFunctions([string]$path) {
 
 function Resolve-RelativeToRoot([string]$root, [string]$relPath) {
   $joined = Join-Path $root $relPath
-  return (Resolve-Path $joined).Path
+  if (Test-Path $joined) {
+    return (Resolve-Path $joined).Path
+  }
+
+  $trimmed = $relPath
+  while ($trimmed.StartsWith("..\") -or $trimmed.StartsWith("../")) {
+    $trimmed = $trimmed.Substring(3)
+  }
+  while ($trimmed.StartsWith(".\") -or $trimmed.StartsWith("./")) {
+    $trimmed = $trimmed.Substring(2)
+  }
+
+  $fallback = Join-Path (Resolve-Path ".").Path $trimmed
+  if (Test-Path $fallback) {
+    return (Resolve-Path $fallback).Path
+  }
+
+  throw "Cannot resolve path '$relPath' from root '$root' (fallback '$fallback')"
 }
 
 if (-not (Test-Path $MapPath)) {

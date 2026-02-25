@@ -122,7 +122,7 @@ if (-not (Test-Path $mainlineRootAbs)) {
   throw "MainlineRoot not found: $mainlineRootAbs"
 }
 
-$sourceFiles = Collect-SourceFiles $rewriteRootAbs $IncludePaths $ExcludePatterns
+$sourceFiles = @(Collect-SourceFiles $rewriteRootAbs $IncludePaths $ExcludePatterns)
 $operations = @()
 $createCount = [int64]0
 $replaceCount = [int64]0
