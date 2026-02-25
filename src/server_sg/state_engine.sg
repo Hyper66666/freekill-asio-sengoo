@@ -1,0 +1,517 @@
+struct RoomRuntimeState {
+    session_id: i64,
+    capacity: i64,
+    player_count: i64,
+    online_human_count: i64,
+    started: bool,
+    outdated: bool,
+    owner_conn_id: i64,
+    lua_ref_count: i64,
+}
+
+struct RoomTransitionResult {
+    state: RoomRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+struct PlayerRuntimeState {
+    conn_id: i64,
+    state_code: i64,
+    ttl: i64,
+    inside_game: bool,
+    is_died: bool,
+}
+
+struct PlayerTransitionResult {
+    state: PlayerRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+struct TaskRuntimeState {
+    next_task_id: i64,
+    active_task_count: i64,
+    pending_reply_count: i64,
+}
+
+struct TaskTransitionResult {
+    state: TaskRuntimeState,
+    applied: bool,
+    reason_code: i64,
+    issued_task_id: i64,
+}
+
+def new_room_runtime_state(capacity: i64, owner_conn_id: i64, next_session_id: i64) -> RoomRuntimeState
+requires capacity > 0 && owner_conn_id >= 0 && next_session_id >= 0
+ensures result.capacity == capacity && result.player_count == 0 && result.started == false && result.outdated == false
+{
+    RoomRuntimeState {
+        session_id: next_session_id,
+        capacity: capacity,
+        player_count: 0,
+        online_human_count: 0,
+        started: false,
+        outdated: false,
+        owner_conn_id: owner_conn_id,
+        lua_ref_count: 0,
+    }
+}
+
+def apply_room_join(state: RoomRuntimeState, joiner_online: bool) -> RoomTransitionResult
+requires state.capacity > 0 && state.player_count >= 0 && state.online_human_count >= 0
+{
+    if !joiner_online {
+        RoomTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7101,
+        }
+    } else if state.started {
+        RoomTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7102,
+        }
+    } else if state.outdated {
+        RoomTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7103,
+        }
+    } else if state.player_count >= state.capacity {
+        RoomTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7104,
+        }
+    } else {
+        RoomTransitionResult {
+            state: RoomRuntimeState {
+                session_id: state.session_id,
+                capacity: state.capacity,
+                player_count: state.player_count + 1,
+                online_human_count: state.online_human_count + 1,
+                started: state.started,
+                outdated: state.outdated,
+                owner_conn_id: state.owner_conn_id,
+                lua_ref_count: state.lua_ref_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_room_leave(state: RoomRuntimeState, leaving_online_human: bool) -> RoomTransitionResult
+requires state.capacity > 0 && state.player_count >= 0 && state.online_human_count >= 0
+{
+    if state.player_count == 0 {
+        RoomTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7105,
+        }
+    } else {
+        let next_player_count = state.player_count - 1;
+        let next_online_human_count = if leaving_online_human && state.online_human_count > 0 {
+            state.online_human_count - 1
+        } else {
+            state.online_human_count
+        };
+        let next_owner_conn_id = if next_player_count == 0 {
+            0
+        } else {
+            state.owner_conn_id
+        };
+        let next_started = if next_player_count == 0 {
+            false
+        } else {
+            state.started
+        };
+        RoomTransitionResult {
+            state: RoomRuntimeState {
+                session_id: state.session_id,
+                capacity: state.capacity,
+                player_count: next_player_count,
+                online_human_count: next_online_human_count,
+                started: next_started,
+                outdated: state.outdated,
+                owner_conn_id: next_owner_conn_id,
+                lua_ref_count: state.lua_ref_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_room_start(state: RoomRuntimeState) -> RoomTransitionResult
+requires state.capacity > 0 && state.player_count >= 0
+{
+    if state.started {
+        RoomTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7106,
+        }
+    } else if state.outdated {
+        RoomTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7107,
+        }
+    } else if state.player_count != state.capacity {
+        RoomTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7108,
+        }
+    } else {
+        RoomTransitionResult {
+            state: RoomRuntimeState {
+                session_id: state.session_id,
+                capacity: state.capacity,
+                player_count: state.player_count,
+                online_human_count: state.online_human_count,
+                started: true,
+                outdated: state.outdated,
+                owner_conn_id: state.owner_conn_id,
+                lua_ref_count: state.lua_ref_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_room_mark_outdated(state: RoomRuntimeState, md5_matches_server: bool) -> RoomTransitionResult
+{
+    if md5_matches_server {
+        RoomTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7109,
+        }
+    } else if state.outdated {
+        RoomTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7110,
+        }
+    } else {
+        RoomTransitionResult {
+            state: RoomRuntimeState {
+                session_id: state.session_id,
+                capacity: state.capacity,
+                player_count: state.player_count,
+                online_human_count: state.online_human_count,
+                started: state.started,
+                outdated: true,
+                owner_conn_id: state.owner_conn_id,
+                lua_ref_count: state.lua_ref_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_room_set_lua_ref_count(state: RoomRuntimeState, lua_ref_count: i64) -> RoomTransitionResult
+requires lua_ref_count >= 0
+{
+    if state.lua_ref_count == lua_ref_count {
+        RoomTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7111,
+        }
+    } else {
+        RoomTransitionResult {
+            state: RoomRuntimeState {
+                session_id: state.session_id,
+                capacity: state.capacity,
+                player_count: state.player_count,
+                online_human_count: state.online_human_count,
+                started: state.started,
+                outdated: state.outdated,
+                owner_conn_id: state.owner_conn_id,
+                lua_ref_count: lua_ref_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def should_collect_room_runtime(state: RoomRuntimeState) -> bool
+{
+    let abandoned = state.player_count == 0 || state.online_human_count == 0;
+    abandoned && state.lua_ref_count == 0
+}
+
+def can_dispatch_room_rpc(state: RoomRuntimeState) -> bool
+{
+    state.started && !state.outdated && state.online_human_count > 0
+}
+
+def new_player_runtime_state(conn_id: i64, initial_ttl: i64, initial_state_code: i64) -> PlayerRuntimeState
+requires conn_id >= 0 && initial_ttl >= 0 && initial_state_code >= 0 && initial_state_code <= 6
+{
+    PlayerRuntimeState {
+        conn_id: conn_id,
+        state_code: initial_state_code,
+        ttl: initial_ttl,
+        inside_game: false,
+        is_died: false,
+    }
+}
+
+def apply_player_heartbeat(state: PlayerRuntimeState, max_ttl: i64) -> PlayerTransitionResult
+requires max_ttl >= 0
+{
+    if max_ttl == 0 {
+        PlayerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7201,
+        }
+    } else {
+        let next_state_code = if state.state_code == 6 {
+            1
+        } else {
+            state.state_code
+        };
+        PlayerTransitionResult {
+            state: PlayerRuntimeState {
+                conn_id: state.conn_id,
+                state_code: next_state_code,
+                ttl: max_ttl,
+                inside_game: state.inside_game,
+                is_died: state.is_died,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_player_disconnect(state: PlayerRuntimeState) -> PlayerTransitionResult
+{
+    if state.state_code == 6 {
+        PlayerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7202,
+        }
+    } else {
+        let mark_run = state.inside_game && !state.is_died;
+        let next_state_code = if mark_run {
+            5
+        } else {
+            6
+        };
+        PlayerTransitionResult {
+            state: PlayerRuntimeState {
+                conn_id: state.conn_id,
+                state_code: next_state_code,
+                ttl: 0,
+                inside_game: mark_run,
+                is_died: state.is_died,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_player_set_dead(state: PlayerRuntimeState, is_died: bool) -> PlayerTransitionResult
+{
+    if state.is_died == is_died {
+        PlayerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7203,
+        }
+    } else {
+        PlayerTransitionResult {
+            state: PlayerRuntimeState {
+                conn_id: state.conn_id,
+                state_code: state.state_code,
+                ttl: state.ttl,
+                inside_game: state.inside_game,
+                is_died: is_died,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_player_enter_game(state: PlayerRuntimeState) -> PlayerTransitionResult
+{
+    if state.state_code == 6 {
+        PlayerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7204,
+        }
+    } else if state.inside_game {
+        PlayerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7205,
+        }
+    } else {
+        PlayerTransitionResult {
+            state: PlayerRuntimeState {
+                conn_id: state.conn_id,
+                state_code: state.state_code,
+                ttl: state.ttl,
+                inside_game: true,
+                is_died: state.is_died,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_player_ttl_tick(state: PlayerRuntimeState) -> PlayerTransitionResult
+{
+    if state.ttl == 0 {
+        PlayerTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7206,
+        }
+    } else {
+        let next_ttl = state.ttl - 1;
+        let next_state_code = if next_ttl == 0 {
+            6
+        } else {
+            state.state_code
+        };
+        let next_inside_game = if next_ttl == 0 {
+            false
+        } else {
+            state.inside_game
+        };
+        PlayerTransitionResult {
+            state: PlayerRuntimeState {
+                conn_id: state.conn_id,
+                state_code: next_state_code,
+                ttl: next_ttl,
+                inside_game: next_inside_game,
+                is_died: state.is_died,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def can_player_accept_request(state: PlayerRuntimeState) -> bool
+{
+    let active_state = state.state_code == 1 || state.state_code == 2 || state.state_code == 3;
+    active_state && state.ttl > 0
+}
+
+def new_task_runtime_state(start_task_id: i64) -> TaskRuntimeState
+requires start_task_id <= -1
+{
+    TaskRuntimeState {
+        next_task_id: start_task_id,
+        active_task_count: 0,
+        pending_reply_count: 0,
+    }
+}
+
+def apply_issue_task(state: TaskRuntimeState, conn_id: i64, track_request_id: bool) -> TaskTransitionResult
+{
+    if conn_id <= 0 {
+        TaskTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7301,
+            issued_task_id: -1,
+        }
+    } else {
+        let next_pending_reply_count = if track_request_id {
+            state.pending_reply_count + 1
+        } else {
+            state.pending_reply_count
+        };
+        TaskTransitionResult {
+            state: TaskRuntimeState {
+                next_task_id: state.next_task_id - 1,
+                active_task_count: state.active_task_count + 1,
+                pending_reply_count: next_pending_reply_count,
+            },
+            applied: true,
+            reason_code: 0,
+            issued_task_id: state.next_task_id,
+        }
+    }
+}
+
+def apply_finish_task(state: TaskRuntimeState, had_pending_reply: bool) -> TaskTransitionResult
+{
+    if state.active_task_count == 0 {
+        TaskTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7302,
+            issued_task_id: -1,
+        }
+    } else {
+        let next_pending_reply_count = if had_pending_reply && state.pending_reply_count > 0 {
+            state.pending_reply_count - 1
+        } else {
+            state.pending_reply_count
+        };
+        TaskTransitionResult {
+            state: TaskRuntimeState {
+                next_task_id: state.next_task_id,
+                active_task_count: state.active_task_count - 1,
+                pending_reply_count: next_pending_reply_count,
+            },
+            applied: true,
+            reason_code: 0,
+            issued_task_id: -1,
+        }
+    }
+}
+
+def apply_abort_all_tasks(state: TaskRuntimeState) -> TaskTransitionResult
+{
+    if state.active_task_count == 0 && state.pending_reply_count == 0 {
+        TaskTransitionResult {
+            state: state,
+            applied: false,
+            reason_code: 7303,
+            issued_task_id: -1,
+        }
+    } else {
+        TaskTransitionResult {
+            state: TaskRuntimeState {
+                next_task_id: state.next_task_id,
+                active_task_count: 0,
+                pending_reply_count: 0,
+            },
+            applied: true,
+            reason_code: 0,
+            issued_task_id: -1,
+        }
+    }
+}
+
+def can_gc_user_task_bucket(state: TaskRuntimeState) -> bool
+{
+    state.active_task_count == 0
+}
+
+def can_lookup_reply_mapping(state: TaskRuntimeState) -> bool
+{
+    state.pending_reply_count > 0
+}
