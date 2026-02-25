@@ -12,6 +12,7 @@ This directory is intentionally isolated from the current C++ server and has its
 - Unified completion gate available at `tests/smoke/rewrite_completion_smoke.ps1`
 - Milestone contract gates M1-M6 are wired and executable via smoke scripts
 - Runtime parity tooling chain (scaffold/builder/pipeline/harness) is in place with placeholder-evidence guard
+- Live runtime probe collection and acceptance entrypoint are available for endpoint-based evidence capture
 
 ## Directory Layout
 
@@ -24,6 +25,7 @@ This directory is intentionally isolated from the current C++ server and has its
 - `docs/`: migration map and milestone gates
 - `docs/RUNTIME_PARITY_CHECKLIST.md`: runtime equivalence acceptance checklist
 - `docs/RUNTIME_EVENT_SCHEMA.md`: runtime collector input schema and examples
+- `docs/LIVE_RUNTIME_ACCEPTANCE.md`: live endpoint probe flow and manifest schema
 - `tests/smoke/`: milestone and completion smoke checks
 - `tests/runtime/`: runtime artifact parity harness scripts
 
@@ -39,6 +41,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_case_sca
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_case_collector_smoke.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_parity_harness_smoke.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_parity_pipeline_smoke.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_live_evidence_collector_smoke.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/smoke/runtime_live_acceptance_smoke.ps1
 ```
 
 If `sgc` is available locally:
