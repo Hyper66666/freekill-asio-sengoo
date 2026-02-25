@@ -742,3 +742,183 @@ def should_runtime_emit_heartbeat_warning(state: RuntimeEngineState) -> bool
 {
     state.player.state_code != 6 && state.player.ttl <= 1
 }
+
+struct RuntimeIoOp {
+    kind: i64,
+    subject_id: i64,
+    value_a: i64,
+    value_b: i64,
+    immediate: bool,
+}
+
+struct RuntimeIoDispatch {
+    has_op: bool,
+    op: RuntimeIoOp,
+    reason_code: i64,
+}
+
+def runtime_io_kind_none() -> i64
+ensures result == 0
+{
+    0
+}
+
+def runtime_io_kind_room_changed() -> i64
+ensures result == 1001
+{
+    1001
+}
+
+def runtime_io_kind_room_started() -> i64
+ensures result == 1002
+{
+    1002
+}
+
+def runtime_io_kind_heartbeat_ack() -> i64
+ensures result == 1003
+{
+    1003
+}
+
+def runtime_io_kind_player_disconnected() -> i64
+ensures result == 1004
+{
+    1004
+}
+
+def runtime_io_kind_task_issued() -> i64
+ensures result == 1101
+{
+    1101
+}
+
+def runtime_io_kind_task_finished() -> i64
+ensures result == 1102
+{
+    1102
+}
+
+def runtime_io_kind_gc_suggested() -> i64
+ensures result == 1201
+{
+    1201
+}
+
+def empty_runtime_io_op() -> RuntimeIoOp
+{
+    RuntimeIoOp {
+        kind: runtime_io_kind_none(),
+        subject_id: 0,
+        value_a: 0,
+        value_b: 0,
+        immediate: false,
+    }
+}
+
+def build_runtime_io_dispatch(previous_state: RuntimeEngineState, event_result: RuntimeEngineResult) -> RuntimeIoDispatch
+{
+    let state = event_result.state;
+    if !event_result.applied {
+        RuntimeIoDispatch {
+            has_op: false,
+            op: empty_runtime_io_op(),
+            reason_code: 7401,
+        }
+    } else if event_result.event_code == 1 || event_result.event_code == 2 {
+        RuntimeIoDispatch {
+            has_op: true,
+            op: RuntimeIoOp {
+                kind: runtime_io_kind_room_changed(),
+                subject_id: state.room.session_id,
+                value_a: state.room.player_count,
+                value_b: state.room.online_human_count,
+                immediate: true,
+            },
+            reason_code: 0,
+        }
+    } else if event_result.event_code == 3 {
+        RuntimeIoDispatch {
+            has_op: true,
+            op: RuntimeIoOp {
+                kind: runtime_io_kind_room_started(),
+                subject_id: state.room.session_id,
+                value_a: state.room.player_count,
+                value_b: state.room.capacity,
+                immediate: true,
+            },
+            reason_code: 0,
+        }
+    } else if event_result.event_code == 5 {
+        RuntimeIoDispatch {
+            has_op: true,
+            op: RuntimeIoOp {
+                kind: runtime_io_kind_heartbeat_ack(),
+                subject_id: state.player.conn_id,
+                value_a: state.player.ttl,
+                value_b: 0,
+                immediate: true,
+            },
+            reason_code: 0,
+        }
+    } else if event_result.event_code == 6 {
+        RuntimeIoDispatch {
+            has_op: true,
+            op: RuntimeIoOp {
+                kind: runtime_io_kind_player_disconnected(),
+                subject_id: state.player.conn_id,
+                value_a: state.player.state_code,
+                value_b: state.player.ttl,
+                immediate: true,
+            },
+            reason_code: 0,
+        }
+    } else if event_result.event_code == 7 {
+        RuntimeIoDispatch {
+            has_op: true,
+            op: RuntimeIoOp {
+                kind: runtime_io_kind_task_issued(),
+                subject_id: previous_state.task.next_task_id,
+                value_a: state.task.active_task_count,
+                value_b: state.task.pending_reply_count,
+                immediate: false,
+            },
+            reason_code: 0,
+        }
+    } else if event_result.event_code == 8 || event_result.event_code == 9 {
+        RuntimeIoDispatch {
+            has_op: true,
+            op: RuntimeIoOp {
+                kind: runtime_io_kind_task_finished(),
+                subject_id: state.player.conn_id,
+                value_a: state.task.active_task_count,
+                value_b: state.task.pending_reply_count,
+                immediate: false,
+            },
+            reason_code: 0,
+        }
+    } else if should_runtime_collect_gc(state) {
+        RuntimeIoDispatch {
+            has_op: true,
+            op: RuntimeIoOp {
+                kind: runtime_io_kind_gc_suggested(),
+                subject_id: state.room.session_id,
+                value_a: state.task.active_task_count,
+                value_b: state.room.lua_ref_count,
+                immediate: false,
+            },
+            reason_code: 0,
+        }
+    } else {
+        RuntimeIoDispatch {
+            has_op: false,
+            op: empty_runtime_io_op(),
+            reason_code: 7402,
+        }
+    }
+}
+
+def should_runtime_emit_io(dispatch: RuntimeIoDispatch) -> bool
+{
+    dispatch.has_op && dispatch.op.kind != runtime_io_kind_none()
+}
