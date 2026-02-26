@@ -745,6 +745,211 @@ ensures result >= 0
     }
 }
 
+struct MainRuntimeHostBridgeState {
+    running: bool,
+    accepted_connection_count: i64,
+    packet_rx_count: i64,
+    packet_tx_count: i64,
+    lua_script_version: i64,
+    protobuf_pass_count: i64,
+    persist_write_count: i64,
+    persist_read_count: i64,
+    route_stable_count: i64,
+    io_poll_count: i64,
+    error_count: i64,
+    rejected_operation_count: i64,
+}
+
+struct MainRuntimeHostBridgeTransitionResult {
+    state: MainRuntimeHostBridgeState,
+    applied: bool,
+    reason_code: i64,
+    thread_id: i64,
+}
+
+def new_main_runtime_host_bridge_state() -> MainRuntimeHostBridgeState
+{
+    MainRuntimeHostBridgeState {
+        running: false,
+        accepted_connection_count: 0,
+        packet_rx_count: 0,
+        packet_tx_count: 0,
+        lua_script_version: 1,
+        protobuf_pass_count: 0,
+        persist_write_count: 0,
+        persist_read_count: 0,
+        route_stable_count: 0,
+        io_poll_count: 0,
+        error_count: 0,
+        rejected_operation_count: 0,
+    }
+}
+
+def apply_main_host_bridge_start(state: MainRuntimeHostBridgeState) -> MainRuntimeHostBridgeTransitionResult
+{
+    if state.running {
+        MainRuntimeHostBridgeTransitionResult {
+            state: MainRuntimeHostBridgeState {
+                running: state.running,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                lua_script_version: state.lua_script_version,
+                protobuf_pass_count: state.protobuf_pass_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                route_stable_count: state.route_stable_count,
+                io_poll_count: state.io_poll_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9051,
+            thread_id: -1,
+        }
+    } else {
+        MainRuntimeHostBridgeTransitionResult {
+            state: MainRuntimeHostBridgeState {
+                running: true,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                lua_script_version: state.lua_script_version,
+                protobuf_pass_count: state.protobuf_pass_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                route_stable_count: state.route_stable_count,
+                io_poll_count: state.io_poll_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+            thread_id: -1,
+        }
+    }
+}
+
+def apply_main_host_bridge_demo_flow(
+    state: MainRuntimeHostBridgeState,
+    route_key_hash: i64,
+    thread_count: i64,
+    expected_thread_id: i64,
+) -> MainRuntimeHostBridgeTransitionResult
+requires route_key_hash >= 0 && thread_count > 0 && expected_thread_id >= -1
+{
+    if !state.running {
+        MainRuntimeHostBridgeTransitionResult {
+            state: MainRuntimeHostBridgeState {
+                running: state.running,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                lua_script_version: state.lua_script_version,
+                protobuf_pass_count: state.protobuf_pass_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                route_stable_count: state.route_stable_count,
+                io_poll_count: state.io_poll_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9052,
+            thread_id: -1,
+        }
+    } else {
+        let selected_thread_id = route_key_hash % thread_count;
+        let mismatch = expected_thread_id >= 0 && expected_thread_id != selected_thread_id;
+        MainRuntimeHostBridgeTransitionResult {
+            state: MainRuntimeHostBridgeState {
+                running: state.running,
+                accepted_connection_count: state.accepted_connection_count + 1,
+                packet_rx_count: state.packet_rx_count + 1,
+                packet_tx_count: state.packet_tx_count + 1,
+                lua_script_version: state.lua_script_version + 1,
+                protobuf_pass_count: state.protobuf_pass_count + 1,
+                persist_write_count: state.persist_write_count + 1,
+                persist_read_count: state.persist_read_count + 1,
+                route_stable_count: if mismatch { state.route_stable_count } else { state.route_stable_count + 1 },
+                io_poll_count: state.io_poll_count + 1,
+                error_count: if mismatch { state.error_count + 1 } else { state.error_count },
+                rejected_operation_count: if mismatch {
+                    state.rejected_operation_count + 1
+                } else {
+                    state.rejected_operation_count
+                },
+            },
+            applied: !mismatch,
+            reason_code: if mismatch { 9053 } else { 0 },
+            thread_id: selected_thread_id,
+        }
+    }
+}
+
+def apply_main_host_bridge_stop(state: MainRuntimeHostBridgeState) -> MainRuntimeHostBridgeTransitionResult
+{
+    if !state.running {
+        MainRuntimeHostBridgeTransitionResult {
+            state: MainRuntimeHostBridgeState {
+                running: state.running,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                lua_script_version: state.lua_script_version,
+                protobuf_pass_count: state.protobuf_pass_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                route_stable_count: state.route_stable_count,
+                io_poll_count: state.io_poll_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9054,
+            thread_id: -1,
+        }
+    } else {
+        MainRuntimeHostBridgeTransitionResult {
+            state: MainRuntimeHostBridgeState {
+                running: false,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                lua_script_version: state.lua_script_version,
+                protobuf_pass_count: state.protobuf_pass_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                route_stable_count: state.route_stable_count,
+                io_poll_count: state.io_poll_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+            thread_id: -1,
+        }
+    }
+}
+
+def apply_main_finalize_exit_with_host(
+    state: MainRuntimeState,
+    host_state: MainRuntimeHostBridgeState,
+) -> i64
+ensures result >= 0
+{
+    let base = apply_main_finalize_exit(state);
+    if base != 0 {
+        base
+    } else if host_state.running {
+        5
+    } else if host_state.error_count > 0 && host_state.protobuf_pass_count == 0 {
+        4
+    } else {
+        0
+    }
+}
+
 def milestone_phase() -> i64
 ensures result == 1
 {
@@ -772,10 +977,19 @@ ensures result >= 0
         if !started.applied {
             apply_main_finalize_exit(started.state)
         } else {
+            let host0 = new_main_runtime_host_bridge_state();
+            let host1 = apply_main_host_bridge_start(host0);
+            let host2 = apply_main_host_bridge_demo_flow(
+                host1.state,
+                90001,
+                started.state.io_thread_count,
+                -1,
+            );
             let ticked = apply_main_runtime_tick(started.state, 1000);
             let signaled = apply_main_receive_signal(ticked.state, 15);
             let stopped = apply_main_stop_service(signaled.state, true);
-            apply_main_finalize_exit(stopped.state)
+            let host3 = apply_main_host_bridge_stop(host2.state);
+            apply_main_finalize_exit_with_host(stopped.state, host3.state)
         }
     }
 }
