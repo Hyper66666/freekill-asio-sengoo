@@ -22,4 +22,5 @@ Python processes in the runtime data plane.
 ## Required Gates Before Production Claim
 1. Native build success (`sgc build` -> runnable executable).
 2. Native runtime acceptance pass (network/codec/ffi/persistence/stability).
-3. Release package smoke pass on clean host (no Python/sgc preinstall).
+3. Native soak stability pass on weak-server profile.
+4. Release package smoke pass on clean host (no Python/sgc preinstall).

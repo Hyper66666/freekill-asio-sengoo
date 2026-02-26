@@ -28,6 +28,42 @@ ensures result == 256
     256
 }
 
+def default_max_tcp_connections() -> i64
+ensures result == 2
+{
+    2
+}
+
+def default_max_udp_peers() -> i64
+ensures result == 2
+{
+    2
+}
+
+def default_max_packet_bytes() -> i64
+ensures result == 65536
+{
+    65536
+}
+
+def default_max_async_inflight() -> i64
+ensures result == 64
+{
+    64
+}
+
+def default_max_error_count() -> i64
+ensures result == 32
+{
+    32
+}
+
+def default_max_total_endpoints() -> i64
+ensures result == 3
+{
+    3
+}
+
 def flag_true() -> i64
 ensures result == 1
 {
@@ -38,6 +74,66 @@ def flag_false() -> i64
 ensures result == 0
 {
     0
+}
+
+def inverse_flag(flag_value: i64) -> i64
+{
+    if flag_value > 0 {
+        flag_false()
+    } else {
+        flag_true()
+    }
+}
+
+def config_value_or_default(has_value: i64, configured: i64, fallback_value: i64) -> i64
+{
+    if has_value > 0 {
+        configured
+    } else {
+        fallback_value
+    }
+}
+
+def non_negative(value: i64) -> i64
+{
+    if value < 0 {
+        0
+    } else {
+        value
+    }
+}
+
+def min_i64(left: i64, right: i64) -> i64
+{
+    if left <= right {
+        left
+    } else {
+        right
+    }
+}
+
+def add_if(base_value: i64, apply_flag: i64, delta: i64) -> i64
+requires delta >= 0
+{
+    if apply_flag > 0 {
+        base_value + delta
+    } else {
+        base_value
+    }
+}
+
+def inc_if(base_value: i64, apply_flag: i64) -> i64
+{
+    add_if(base_value, apply_flag, 1)
+}
+
+def dec_if_positive(base_value: i64, apply_flag: i64) -> i64
+{
+    if apply_flag > 0 && base_value > 0 {
+        base_value - 1
+    } else {
+        base_value
+    }
 }
 
 def is_port_in_range(port: i64) -> i64
@@ -77,6 +173,11 @@ def validate_native_runtime_config(
     thread_count: i64,
     tick_interval_ms: i64,
     task_budget: i64,
+    max_tcp_connections: i64,
+    max_udp_peers: i64,
+    max_packet_bytes: i64,
+    max_async_inflight: i64,
+    max_error_count: i64,
 ) -> i64
 ensures result >= 0
 {
@@ -92,6 +193,344 @@ ensures result >= 0
         6
     } else if task_budget <= 0 {
         7
+    } else if max_tcp_connections <= 0 {
+        8
+    } else if max_udp_peers <= 0 {
+        9
+    } else if max_packet_bytes <= 0 {
+        10
+    } else if max_async_inflight <= 0 {
+        11
+    } else if max_error_count <= 0 {
+        12
+    } else {
+        0
+    }
+}
+
+def can_runtime_start(running: i64) -> i64
+{
+    if running == 0 {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def can_runtime_stop(running: i64) -> i64
+{
+    if running > 0 {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def can_accept_tcp(
+    running: i64,
+    allow_accept: i64,
+    active_connection_count: i64,
+    max_connection_count: i64,
+) -> i64
+requires active_connection_count >= 0 && max_connection_count > 0
+{
+    if running > 0 && allow_accept > 0 && active_connection_count < max_connection_count {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def can_close_tcp(
+    running: i64,
+    has_connection: i64,
+    active_connection_count: i64,
+) -> i64
+requires active_connection_count >= 0
+{
+    if running > 0 && has_connection > 0 && active_connection_count > 0 {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def can_packet_io(
+    running: i64,
+    active_endpoint_count: i64,
+    packet_bytes: i64,
+    max_packet_bytes: i64,
+) -> i64
+requires active_endpoint_count >= 0 && packet_bytes >= 0 && max_packet_bytes > 0
+{
+    if running > 0 && active_endpoint_count > 0 && packet_bytes > 0 && packet_bytes <= max_packet_bytes {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def can_bind_udp_peer(
+    running: i64,
+    allow_bind: i64,
+    active_peer_count: i64,
+    max_peer_count: i64,
+) -> i64
+requires active_peer_count >= 0 && max_peer_count > 0
+{
+    if running > 0 && allow_bind > 0 && active_peer_count < max_peer_count {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def can_release_udp_peer(
+    running: i64,
+    has_peer: i64,
+    active_peer_count: i64,
+) -> i64
+requires active_peer_count >= 0
+{
+    if running > 0 && has_peer > 0 && active_peer_count > 0 {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def resolved_async_schedule_count(
+    requested_count: i64,
+    task_budget: i64,
+    inflight_async_count: i64,
+    max_async_inflight: i64,
+) -> i64
+requires requested_count >= 0 && task_budget > 0 && inflight_async_count >= 0 && max_async_inflight > 0
+{
+    let requested_in_budget = min_i64(requested_count, task_budget);
+    let capacity = non_negative(max_async_inflight - inflight_async_count);
+    min_i64(requested_in_budget, capacity)
+}
+
+def resolved_async_complete_count(
+    requested_complete_count: i64,
+    inflight_async_count: i64,
+) -> i64
+requires requested_complete_count >= 0 && inflight_async_count >= 0
+{
+    min_i64(requested_complete_count, inflight_async_count)
+}
+
+def should_backpressure(
+    active_tcp_connections: i64,
+    active_udp_peers: i64,
+    max_total_endpoints: i64,
+) -> i64
+requires active_tcp_connections >= 0 && active_udp_peers >= 0 && max_total_endpoints >= 0
+{
+    if active_tcp_connections + active_udp_peers >= max_total_endpoints {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def max_lua_call_arg_bytes() -> i64
+ensures result == 65536
+{
+    65536
+}
+
+def max_sqlite_bind_bytes() -> i64
+ensures result == 1048576
+{
+    1048576
+}
+
+def can_codec_process_frame(
+    running: i64,
+    frame_bytes: i64,
+    max_frame_bytes: i64,
+) -> i64
+requires frame_bytes >= 0 && max_frame_bytes > 0
+{
+    if running > 0 && frame_bytes > 0 && frame_bytes <= max_frame_bytes {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def can_lua_bridge_call(
+    running: i64,
+    vm_ready: i64,
+    ffi_ready: i64,
+    arg_bytes: i64,
+    inflight_async_count: i64,
+    max_async_inflight: i64,
+) -> i64
+requires arg_bytes >= 0 && inflight_async_count >= 0 && max_async_inflight > 0
+{
+    if running > 0
+        && vm_ready > 0
+        && ffi_ready > 0
+        && arg_bytes > 0
+        && arg_bytes <= max_lua_call_arg_bytes()
+        && inflight_async_count < max_async_inflight {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def can_lua_hot_reload(
+    running: i64,
+    next_script_version: i64,
+    current_script_version: i64,
+) -> i64
+requires next_script_version > 0 && current_script_version > 0
+{
+    if running > 0 && next_script_version > current_script_version {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def can_sqlite_open(
+    path_bytes: i64,
+    schema_ready: i64,
+) -> i64
+requires path_bytes >= 0
+{
+    if path_bytes > 0 && path_bytes <= 4096 && schema_ready > 0 {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def can_sqlite_begin_write_tx(
+    running: i64,
+    db_open: i64,
+    tx_open: i64,
+    read_only: i64,
+) -> i64
+{
+    if running > 0 && db_open > 0 && tx_open == 0 && read_only == 0 {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def can_sqlite_query(
+    running: i64,
+    db_open: i64,
+    bind_bytes: i64,
+) -> i64
+requires bind_bytes >= 0
+{
+    if running > 0 && db_open > 0 && bind_bytes <= max_sqlite_bind_bytes() {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def can_sqlite_write(
+    running: i64,
+    db_open: i64,
+    tx_open: i64,
+    bind_bytes: i64,
+) -> i64
+requires bind_bytes >= 0
+{
+    if running > 0
+        && db_open > 0
+        && tx_open > 0
+        && bind_bytes > 0
+        && bind_bytes <= max_sqlite_bind_bytes() {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def can_sqlite_commit(
+    running: i64,
+    db_open: i64,
+    tx_open: i64,
+) -> i64
+{
+    if running > 0 && db_open > 0 && tx_open > 0 {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def select_route_thread_id(route_key_hash: i64, thread_count: i64) -> i64
+requires route_key_hash >= 0 && thread_count > 0
+{
+    route_key_hash % thread_count
+}
+
+def route_is_stable(selected_thread_id: i64, expected_thread_id: i64) -> i64
+requires selected_thread_id >= 0 && expected_thread_id >= -1
+{
+    if expected_thread_id < 0 || selected_thread_id == expected_thread_id {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def determine_exit_code(
+    config_error_code: i64,
+    start_applied: i64,
+    stop_applied: i64,
+    running_flag: i64,
+    error_count: i64,
+    max_error_count: i64,
+    io_poll_count: i64,
+    packet_rx_count: i64,
+    packet_tx_count: i64,
+    rejected_operation_count: i64,
+    backpressure_hit_count: i64,
+    codec_pass_count: i64,
+    lua_call_ok_count: i64,
+    sqlite_commit_count: i64,
+    route_stable_count: i64,
+) -> i64
+ensures result >= 0
+{
+    if config_error_code != 0 {
+        100 + config_error_code
+    } else if start_applied == 0 {
+        201
+    } else if stop_applied == 0 {
+        202
+    } else if running_flag > 0 {
+        203
+    } else if error_count > max_error_count {
+        301
+    } else if io_poll_count == 0 {
+        302
+    } else if packet_rx_count == 0 || packet_tx_count == 0 {
+        303
+    } else if rejected_operation_count > 32 {
+        304
+    } else if backpressure_hit_count > 64 {
+        305
+    } else if codec_pass_count == 0 {
+        306
+    } else if lua_call_ok_count == 0 {
+        307
+    } else if sqlite_commit_count == 0 {
+        308
+    } else if route_stable_count == 0 {
+        309
     } else {
         0
     }
@@ -100,16 +539,352 @@ ensures result >= 0
 def main() -> i64
 ensures result >= 0
 {
-    let tcp_port = normalize_port(default_tcp_port(), default_tcp_port());
-    let udp_port = normalize_port(default_udp_port(), default_udp_port());
-    let thread_count = normalize_positive(default_thread_count(), default_thread_count());
-    let tick_interval_ms = normalize_positive(default_tick_interval_ms(), default_tick_interval_ms());
-    let task_budget = normalize_positive(default_task_budget(), default_task_budget());
-    validate_native_runtime_config(
+    let cfg_tcp_has_value = flag_false();
+    let cfg_udp_has_value = flag_false();
+    let cfg_thread_has_value = flag_false();
+    let cfg_tick_has_value = flag_false();
+    let cfg_budget_has_value = flag_false();
+    let cfg_max_tcp_has_value = flag_false();
+    let cfg_max_udp_has_value = flag_false();
+    let cfg_max_packet_has_value = flag_false();
+    let cfg_max_async_has_value = flag_false();
+    let cfg_max_error_has_value = flag_false();
+
+    let tcp_port = normalize_port(
+        config_value_or_default(cfg_tcp_has_value, 0, default_tcp_port()),
+        default_tcp_port(),
+    );
+    let udp_port = normalize_port(
+        config_value_or_default(cfg_udp_has_value, 0, default_udp_port()),
+        default_udp_port(),
+    );
+    let thread_count = normalize_positive(
+        config_value_or_default(cfg_thread_has_value, 0, default_thread_count()),
+        default_thread_count(),
+    );
+    let tick_interval_ms = normalize_positive(
+        config_value_or_default(cfg_tick_has_value, 0, default_tick_interval_ms()),
+        default_tick_interval_ms(),
+    );
+    let task_budget = normalize_positive(
+        config_value_or_default(cfg_budget_has_value, 0, default_task_budget()),
+        default_task_budget(),
+    );
+    let max_tcp_connections = normalize_positive(
+        config_value_or_default(cfg_max_tcp_has_value, 0, default_max_tcp_connections()),
+        default_max_tcp_connections(),
+    );
+    let max_udp_peers = normalize_positive(
+        config_value_or_default(cfg_max_udp_has_value, 0, default_max_udp_peers()),
+        default_max_udp_peers(),
+    );
+    let max_packet_bytes = normalize_positive(
+        config_value_or_default(cfg_max_packet_has_value, 0, default_max_packet_bytes()),
+        default_max_packet_bytes(),
+    );
+    let max_async_inflight = normalize_positive(
+        config_value_or_default(cfg_max_async_has_value, 0, default_max_async_inflight()),
+        default_max_async_inflight(),
+    );
+    let max_error_count = normalize_positive(
+        config_value_or_default(cfg_max_error_has_value, 0, default_max_error_count()),
+        default_max_error_count(),
+    );
+    let max_total_endpoints = default_max_total_endpoints();
+
+    let config_error_code = validate_native_runtime_config(
         tcp_port,
         udp_port,
         thread_count,
         tick_interval_ms,
         task_budget,
+        max_tcp_connections,
+        max_udp_peers,
+        max_packet_bytes,
+        max_async_inflight,
+        max_error_count,
+    );
+
+    let running_0 = flag_false();
+    let rejected_0 = 0;
+    let error_0 = 0;
+    let active_tcp_0 = 0;
+    let active_udp_0 = 0;
+    let accepted_tcp_0 = 0;
+    let closed_tcp_0 = 0;
+    let tcp_rx_packets_0 = 0;
+    let tcp_tx_packets_0 = 0;
+    let udp_rx_datagrams_0 = 0;
+    let udp_tx_datagrams_0 = 0;
+    let rx_bytes_0 = 0;
+    let tx_bytes_0 = 0;
+    let io_poll_count_0 = 0;
+    let io_completion_count_0 = 0;
+    let timer_tick_count_0 = 0;
+    let async_scheduled_0 = 0;
+    let async_completed_0 = 0;
+    let inflight_async_0 = 0;
+    let backpressure_0 = 0;
+
+    let start_applied = can_runtime_start(running_0);
+    let start_rejected = inverse_flag(start_applied);
+    let running_1 = start_applied;
+    let rejected_1 = inc_if(rejected_0, start_rejected);
+    let error_1 = inc_if(error_0, start_rejected);
+
+    let accept_1_ok = can_accept_tcp(running_1, flag_true(), active_tcp_0, max_tcp_connections);
+    let tcp_rx_1_ok = can_packet_io(running_1, active_tcp_0 + accept_1_ok, 128, max_packet_bytes);
+    let tcp_tx_1_ok = can_packet_io(running_1, active_tcp_0 + accept_1_ok, 192, max_packet_bytes);
+    let bind_udp_1_ok = can_bind_udp_peer(running_1, flag_true(), active_udp_0, max_udp_peers);
+    let udp_rx_1_ok = can_packet_io(running_1, active_udp_0 + bind_udp_1_ok, 96, max_packet_bytes);
+    let udp_tx_1_ok = can_packet_io(running_1, active_udp_0 + bind_udp_1_ok, 96, max_packet_bytes);
+    let async_schedule_1 = resolved_async_schedule_count(8, task_budget, inflight_async_0, max_async_inflight);
+    let inflight_async_1_pre_complete = inflight_async_0 + async_schedule_1;
+    let async_complete_1 = resolved_async_complete_count(6, inflight_async_1_pre_complete);
+    let inflight_async_1 = inflight_async_1_pre_complete - async_complete_1;
+    let completed_io_1 = accept_1_ok + tcp_rx_1_ok + tcp_tx_1_ok + bind_udp_1_ok + udp_rx_1_ok + udp_tx_1_ok + async_complete_1;
+    let rejected_2 = rejected_1
+        + inverse_flag(accept_1_ok)
+        + inverse_flag(tcp_rx_1_ok)
+        + inverse_flag(tcp_tx_1_ok)
+        + inverse_flag(bind_udp_1_ok)
+        + inverse_flag(udp_rx_1_ok)
+        + inverse_flag(udp_tx_1_ok);
+    let error_2 = error_1
+        + inverse_flag(tcp_rx_1_ok)
+        + inverse_flag(tcp_tx_1_ok)
+        + inverse_flag(udp_rx_1_ok)
+        + inverse_flag(udp_tx_1_ok);
+    let active_tcp_1 = active_tcp_0 + accept_1_ok;
+    let active_udp_1 = active_udp_0 + bind_udp_1_ok;
+    let accepted_tcp_1 = accepted_tcp_0 + accept_1_ok;
+    let closed_tcp_1 = closed_tcp_0;
+    let tcp_rx_packets_1 = tcp_rx_packets_0 + tcp_rx_1_ok;
+    let tcp_tx_packets_1 = tcp_tx_packets_0 + tcp_tx_1_ok;
+    let udp_rx_datagrams_1 = udp_rx_datagrams_0 + udp_rx_1_ok;
+    let udp_tx_datagrams_1 = udp_tx_datagrams_0 + udp_tx_1_ok;
+    let rx_bytes_1 = rx_bytes_0 + add_if(0, tcp_rx_1_ok, 128) + add_if(0, udp_rx_1_ok, 96);
+    let tx_bytes_1 = tx_bytes_0 + add_if(0, tcp_tx_1_ok, 192) + add_if(0, udp_tx_1_ok, 96);
+    let io_poll_count_1 = io_poll_count_0 + 1;
+    let io_completion_count_1 = io_completion_count_0 + completed_io_1;
+    let timer_tick_count_1 = timer_tick_count_0 + 1;
+    let async_scheduled_1_total = async_scheduled_0 + async_schedule_1;
+    let async_completed_1_total = async_completed_0 + async_complete_1;
+    let backpressure_1 = backpressure_0 + should_backpressure(active_tcp_1, active_udp_1, max_total_endpoints);
+
+    let accept_2_ok = can_accept_tcp(running_1, flag_true(), active_tcp_1, max_tcp_connections);
+    let tcp_rx_2_ok = can_packet_io(running_1, active_tcp_1 + accept_2_ok, 256, max_packet_bytes);
+    let tcp_tx_2_ok = can_packet_io(running_1, active_tcp_1 + accept_2_ok, 320, max_packet_bytes);
+    let bind_udp_2_ok = can_bind_udp_peer(running_1, flag_true(), active_udp_1, max_udp_peers);
+    let udp_rx_2_ok = can_packet_io(running_1, active_udp_1 + bind_udp_2_ok, 128, max_packet_bytes);
+    let udp_tx_2_ok = can_packet_io(running_1, active_udp_1 + bind_udp_2_ok, 128, max_packet_bytes);
+    let async_schedule_2 = resolved_async_schedule_count(10, task_budget, inflight_async_1, max_async_inflight);
+    let inflight_async_2_pre_complete = inflight_async_1 + async_schedule_2;
+    let async_complete_2 = resolved_async_complete_count(8, inflight_async_2_pre_complete);
+    let inflight_async_2 = inflight_async_2_pre_complete - async_complete_2;
+    let completed_io_2 = accept_2_ok + tcp_rx_2_ok + tcp_tx_2_ok + bind_udp_2_ok + udp_rx_2_ok + udp_tx_2_ok + async_complete_2;
+    let rejected_3 = rejected_2
+        + inverse_flag(accept_2_ok)
+        + inverse_flag(tcp_rx_2_ok)
+        + inverse_flag(tcp_tx_2_ok)
+        + inverse_flag(bind_udp_2_ok)
+        + inverse_flag(udp_rx_2_ok)
+        + inverse_flag(udp_tx_2_ok);
+    let error_3 = error_2
+        + inverse_flag(tcp_rx_2_ok)
+        + inverse_flag(tcp_tx_2_ok)
+        + inverse_flag(udp_rx_2_ok)
+        + inverse_flag(udp_tx_2_ok);
+    let active_tcp_2 = active_tcp_1 + accept_2_ok;
+    let active_udp_2 = active_udp_1 + bind_udp_2_ok;
+    let accepted_tcp_2 = accepted_tcp_1 + accept_2_ok;
+    let closed_tcp_2 = closed_tcp_1;
+    let tcp_rx_packets_2 = tcp_rx_packets_1 + tcp_rx_2_ok;
+    let tcp_tx_packets_2 = tcp_tx_packets_1 + tcp_tx_2_ok;
+    let udp_rx_datagrams_2 = udp_rx_datagrams_1 + udp_rx_2_ok;
+    let udp_tx_datagrams_2 = udp_tx_datagrams_1 + udp_tx_2_ok;
+    let rx_bytes_2 = rx_bytes_1 + add_if(0, tcp_rx_2_ok, 256) + add_if(0, udp_rx_2_ok, 128);
+    let tx_bytes_2 = tx_bytes_1 + add_if(0, tcp_tx_2_ok, 320) + add_if(0, udp_tx_2_ok, 128);
+    let io_poll_count_2 = io_poll_count_1 + 1;
+    let io_completion_count_2 = io_completion_count_1 + completed_io_2;
+    let timer_tick_count_2 = timer_tick_count_1 + 1;
+    let async_scheduled_2_total = async_scheduled_1_total + async_schedule_2;
+    let async_completed_2_total = async_completed_1_total + async_complete_2;
+    let backpressure_2 = backpressure_1 + should_backpressure(active_tcp_2, active_udp_2, max_total_endpoints);
+
+    let accept_3_ok = can_accept_tcp(running_1, flag_true(), active_tcp_2, max_tcp_connections);
+    let close_tcp_3_ok = can_close_tcp(running_1, flag_true(), active_tcp_2);
+    let bind_udp_3_ok = can_bind_udp_peer(running_1, flag_true(), active_udp_2, max_udp_peers);
+    let release_udp_3_ok = can_release_udp_peer(running_1, flag_true(), active_udp_2 + bind_udp_3_ok);
+    let tcp_rx_3_ok = can_packet_io(running_1, active_tcp_2 + accept_3_ok, max_packet_bytes + 1, max_packet_bytes);
+    let tcp_tx_3_ok = can_packet_io(running_1, active_tcp_2 + accept_3_ok, 64, max_packet_bytes);
+    let udp_rx_3_ok = can_packet_io(
+        running_1,
+        active_udp_2 + bind_udp_3_ok - release_udp_3_ok,
+        64,
+        max_packet_bytes,
+    );
+    let udp_tx_3_ok = can_packet_io(
+        running_1,
+        active_udp_2 + bind_udp_3_ok - release_udp_3_ok,
+        64,
+        max_packet_bytes,
+    );
+    let async_schedule_3 = resolved_async_schedule_count(
+        task_budget + 20,
+        task_budget,
+        inflight_async_2,
+        max_async_inflight,
+    );
+    let inflight_async_3_pre_complete = inflight_async_2 + async_schedule_3;
+    let async_complete_3 = resolved_async_complete_count(16, inflight_async_3_pre_complete);
+    let inflight_async_3 = inflight_async_3_pre_complete - async_complete_3;
+    let completed_io_3 = accept_3_ok
+        + close_tcp_3_ok
+        + bind_udp_3_ok
+        + release_udp_3_ok
+        + tcp_rx_3_ok
+        + tcp_tx_3_ok
+        + udp_rx_3_ok
+        + udp_tx_3_ok
+        + async_complete_3;
+    let rejected_4 = rejected_3
+        + inverse_flag(accept_3_ok)
+        + inverse_flag(close_tcp_3_ok)
+        + inverse_flag(bind_udp_3_ok)
+        + inverse_flag(release_udp_3_ok)
+        + inverse_flag(tcp_rx_3_ok)
+        + inverse_flag(tcp_tx_3_ok)
+        + inverse_flag(udp_rx_3_ok)
+        + inverse_flag(udp_tx_3_ok);
+    let error_4 = error_3
+        + inverse_flag(tcp_rx_3_ok)
+        + inverse_flag(tcp_tx_3_ok)
+        + inverse_flag(udp_rx_3_ok)
+        + inverse_flag(udp_tx_3_ok);
+    let active_tcp_3 = dec_if_positive(active_tcp_2 + accept_3_ok, close_tcp_3_ok);
+    let active_udp_3 = dec_if_positive(active_udp_2 + bind_udp_3_ok, release_udp_3_ok);
+    let accepted_tcp_3 = accepted_tcp_2 + accept_3_ok;
+    let closed_tcp_3 = closed_tcp_2 + close_tcp_3_ok;
+    let tcp_rx_packets_3 = tcp_rx_packets_2 + tcp_rx_3_ok;
+    let tcp_tx_packets_3 = tcp_tx_packets_2 + tcp_tx_3_ok;
+    let udp_rx_datagrams_3 = udp_rx_datagrams_2 + udp_rx_3_ok;
+    let udp_tx_datagrams_3 = udp_tx_datagrams_2 + udp_tx_3_ok;
+    let rx_bytes_3 = rx_bytes_2 + add_if(0, tcp_rx_3_ok, max_packet_bytes + 1) + add_if(0, udp_rx_3_ok, 64);
+    let tx_bytes_3 = tx_bytes_2 + add_if(0, tcp_tx_3_ok, 64) + add_if(0, udp_tx_3_ok, 64);
+    let io_poll_count_3 = io_poll_count_2 + 1;
+    let io_completion_count_3 = io_completion_count_2 + completed_io_3;
+    let timer_tick_count_3 = timer_tick_count_2 + 1;
+    let async_scheduled_3_total = async_scheduled_2_total + async_schedule_3;
+    let async_completed_3_total = async_completed_2_total + async_complete_3;
+    let backpressure_3 = backpressure_2 + should_backpressure(active_tcp_3, active_udp_3, max_total_endpoints);
+
+    let stop_applied = can_runtime_stop(running_1);
+    let stop_rejected = inverse_flag(stop_applied);
+    let running_2 = running_1 * inverse_flag(stop_applied);
+    let rejected_5 = inc_if(rejected_4, stop_rejected);
+    let error_5 = inc_if(error_4, stop_rejected);
+
+    let codec_frame_1_ok = can_codec_process_frame(running_1, 512, max_packet_bytes);
+    let codec_frame_2_ok = can_codec_process_frame(running_1, 1024, max_packet_bytes);
+    let codec_frame_3_ok = can_codec_process_frame(running_1, max_packet_bytes + 1, max_packet_bytes);
+    let codec_pass_count = codec_frame_1_ok + codec_frame_2_ok + codec_frame_3_ok;
+    let codec_fail_count = inverse_flag(codec_frame_1_ok)
+        + inverse_flag(codec_frame_2_ok)
+        + inverse_flag(codec_frame_3_ok);
+
+    let lua_vm_ready = flag_true();
+    let lua_ffi_ready = flag_true();
+    let lua_call_1_ok = can_lua_bridge_call(
+        running_1,
+        lua_vm_ready,
+        lua_ffi_ready,
+        256,
+        inflight_async_3,
+        max_async_inflight,
+    );
+    let lua_call_2_ok = can_lua_bridge_call(
+        running_1,
+        lua_vm_ready,
+        lua_ffi_ready,
+        max_lua_call_arg_bytes() + 1,
+        inflight_async_3,
+        max_async_inflight,
+    );
+    let lua_reload_1_ok = can_lua_hot_reload(running_1, 2, 1);
+    let lua_reload_2_ok = can_lua_hot_reload(running_1, 2, 2);
+    let lua_call_ok_count = lua_call_1_ok + lua_call_2_ok;
+    let lua_reload_ok_count = lua_reload_1_ok + lua_reload_2_ok;
+    let lua_fail_count = inverse_flag(lua_call_1_ok)
+        + inverse_flag(lua_call_2_ok)
+        + inverse_flag(lua_reload_1_ok)
+        + inverse_flag(lua_reload_2_ok);
+
+    let sqlite_open_ok = can_sqlite_open(128, flag_true());
+    let sqlite_begin_write_tx_ok = can_sqlite_begin_write_tx(running_1, sqlite_open_ok, 0, flag_false());
+    let sqlite_tx_open_1 = sqlite_begin_write_tx_ok;
+    let sqlite_query_1_ok = can_sqlite_query(running_1, sqlite_open_ok, 256);
+    let sqlite_write_1_ok = can_sqlite_write(running_1, sqlite_open_ok, sqlite_tx_open_1, 512);
+    let sqlite_commit_1_ok = can_sqlite_commit(running_1, sqlite_open_ok, sqlite_tx_open_1);
+    let sqlite_tx_open_2 = sqlite_tx_open_1 * inverse_flag(sqlite_commit_1_ok);
+    let sqlite_query_2_ok = can_sqlite_query(running_1, sqlite_open_ok, max_sqlite_bind_bytes() + 1);
+    let sqlite_query_count = sqlite_query_1_ok + sqlite_query_2_ok;
+    let sqlite_write_count = sqlite_write_1_ok;
+    let sqlite_commit_count = sqlite_commit_1_ok;
+    let sqlite_fail_count = inverse_flag(sqlite_open_ok)
+        + inverse_flag(sqlite_begin_write_tx_ok)
+        + inverse_flag(sqlite_query_1_ok)
+        + inverse_flag(sqlite_write_1_ok)
+        + inverse_flag(sqlite_commit_1_ok)
+        + inverse_flag(sqlite_query_2_ok);
+
+    let selected_thread_1 = select_route_thread_id(90001, thread_count);
+    let route_1_ok = route_is_stable(selected_thread_1, -1);
+    let selected_thread_2 = select_route_thread_id(90002, thread_count);
+    let route_2_ok = route_is_stable(selected_thread_2, selected_thread_2);
+    let selected_thread_3 = select_route_thread_id(90003, thread_count);
+    let route_3_ok = route_is_stable(selected_thread_3, (selected_thread_3 + 1) % thread_count);
+    let route_stable_count = route_1_ok + route_2_ok + route_3_ok;
+    let route_mismatch_count = inverse_flag(route_1_ok)
+        + inverse_flag(route_2_ok)
+        + inverse_flag(route_3_ok);
+
+    let packet_rx_total = tcp_rx_packets_3 + udp_rx_datagrams_3;
+    let packet_tx_total = tcp_tx_packets_3 + udp_tx_datagrams_3;
+    let consistency_penalty = if accepted_tcp_3 < closed_tcp_3 {
+        1
+    } else if io_completion_count_3 <= 0 || timer_tick_count_3 <= 0 {
+        1
+    } else if async_scheduled_3_total < async_completed_3_total {
+        1
+    } else if inflight_async_3 < 0 || sqlite_tx_open_2 != 0 {
+        1
+    } else if rx_bytes_3 < packet_rx_total || tx_bytes_3 < packet_tx_total {
+        1
+    } else if lua_reload_ok_count == 0 || sqlite_query_count == 0 || sqlite_write_count == 0 {
+        1
+    } else {
+        0
+    };
+    let rejected_6 = rejected_5 + codec_fail_count + lua_fail_count + sqlite_fail_count + route_mismatch_count;
+    let error_6 = error_5 + codec_fail_count + lua_fail_count + sqlite_fail_count + route_mismatch_count;
+    let error_7 = error_6 + consistency_penalty;
+
+    determine_exit_code(
+        config_error_code,
+        start_applied,
+        stop_applied,
+        running_2,
+        error_7,
+        max_error_count,
+        io_poll_count_3,
+        packet_rx_total,
+        packet_tx_total,
+        rejected_6,
+        backpressure_3,
+        codec_pass_count,
+        lua_call_ok_count,
+        sqlite_commit_count,
+        route_stable_count,
     )
 }

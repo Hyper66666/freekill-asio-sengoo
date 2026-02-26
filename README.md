@@ -1,169 +1,105 @@
 # freekill-asio-sengoo
 
-## 项目说明
-- 原仓库（C++ 基线）：<https://github.com/Qsgs-Fans/freekill-asio>
+- 原项目仓库（C++ 基线）：<https://github.com/Qsgs-Fans/freekill-asio>
 - 本仓库：以上项目的 **Sengoo 重写版本**
 - Sengoo 语言仓库：<https://github.com/Hyper66666/Sengoo>
 
-## 当前状态（重要）
-结论：当前版本已经达到“可部署运行”状态，可以直接在服务器上运行。  
-但运行形态不是单一可执行二进制，而是：
-- Sengoo 模块：通过 `sgc check` 做类型/契约检查
-- 运行时服务：通过 Python 进程执行（`scripts/runtime_host_server.py` 与 `scripts/runtime_host_watchdog.py`）
+当前仓库公开历史仅保留核心实现代码与必要脚本。  
+文档资产、OpenSpec 资产与测试资产不在当前发布历史中。
 
-当前主线已通过发布闸门脚本：
-- `scripts/runtime_host_release_gate.ps1`
-- 包含：基础验收 + 配置验收 + watchdog 重启验收 + soak 压测验收
+## 当前状态
 
-## 已实现能力范围
-- TCP/UDP 网络 I/O 生命周期（连接、收发、关闭、计数）
-- 事件循环与定时调度（tick/poll/async budget/backpressure）
-- 数据包编解码路径（JSON + Protobuf 二进制回归路径）
-- Lua FFI 桥接与热重载（同步/异步调用与计数）
-- SQLite 持久化（事务、查询、写入、commit/rollback 指标）
-- watchdog 进程守护（健康探针失败重启、异常退出重启）
-- Windows/Linux 服务化部署脚本（计划任务/systemd）
+当前主线已提供原生（native）发布路径，生产闸门默认走 native，不再依赖 Python 数据面进程。
 
-## 环境要求
-- Python 3.10+（建议 3.11/3.12）
-- Windows PowerShell 5+（Windows 部署脚本）
-- Linux `systemd` + `bash`（Linux 部署脚本）
-- Sengoo 编译器 `sgc`（用于模块检查）
-- 可选依赖：`protobuf`
-  - 如果需要完整 Protobuf 回归路径，安装：
-  - `pip install protobuf`
-- 网络要求：
-  - 开放配置中的 TCP/UDP 监听端口
-  - 允许本机健康探针访问监听端口
+已落地能力：
+- 原生 runtime 入口（确定性退出码）
+- TCP/UDP 连接管理与事件循环状态路径
+- async 调度与 backpressure 限流路径
+- codec/Lua/SQLite/路由稳定性指标接入 native 执行流
+- 原生 acceptance + dependency audit + soak + release gate
+- Windows/Linux 原生安装脚本（计划任务 / systemd）
 
-## 目录结构
-- `src/`：Sengoo 业务模块（网络/编解码/FFI/服务状态机）
-- `scripts/runtime_host_server.py`：运行时主服务
-- `scripts/runtime_host_watchdog.py`：守护进程与自动重启
-- `scripts/runtime_host_healthcheck.py`：健康探针
-- `scripts/runtime_host_acceptance.ps1`：验收脚本（支持 `-IncludeSoak`、`-IncludeWatchdogSmoke`）
-- `scripts/runtime_host_release_gate.ps1`：发布闸门（一键综合验收）
-- `scripts/runtime_host.config.example.json`：配置模板
+## 目录
 
-## 快速启动
-### 1. 准备配置
-复制配置模板并按服务器实际值修改：
+- `src/`：Sengoo 业务与运行时逻辑
+- `scripts/`：构建、验收、发布与安装脚本
+- `release/`：发布范围、布局、弱机基线、迁移清单
 
-```powershell
-Copy-Item scripts/runtime_host.config.example.json .\runtime_host.config.json
-```
+## 快速开始（Native）
 
-### 2. 直接启动服务（前台）
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_runtime_host.ps1 -ConfigJsonPath .\runtime_host.config.json
-```
-
-### 3. 生产推荐：watchdog 启动
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_runtime_host_watchdog.ps1 -ConfigJsonPath .\runtime_host.config.json
-```
-
-## 配置项说明（`runtime_host.config.json`）
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `host` | string | 监听地址，如 `0.0.0.0` |
-| `tcp_port` | int | TCP 监听端口 |
-| `udp_port` | int | UDP 监听端口 |
-| `runtime_name` | string | 运行时实例名（指标中可见） |
-| `db_path` | string | SQLite 数据文件路径 |
-| `thread_count` | int | 路由/线程桶数量 |
-| `tick_interval_ms` | int | 事件循环 tick 间隔 |
-| `task_budget` | int | 异步任务预算上限 |
-| `lua_script_path` | string | Lua 脚本路径 |
-| `lua_command` | string | Lua 可执行命令（可空） |
-| `drift_mode` | string | 漂移注入：`none/route/flow/protobuf` |
-
-## 健康检查与运行确认
-### Python 探针
-```powershell
-python scripts/runtime_host_healthcheck.py --host 127.0.0.1 --tcp-port 9527 --udp-port 9528 --require-udp --json-output
-```
-
-### PowerShell 探针封装
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_healthcheck.ps1 -EndpointHost 127.0.0.1 -TcpPort 9527 -UdpPort 9528 -RequireUdp
-```
-
-## 服务化部署
-### Windows（计划任务）
-安装并立即启动：
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_runtime_host_windows_task.ps1 -ConfigJsonPath .\runtime_host.config.json -Force -StartNow
-```
-
-卸载：
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall_runtime_host_windows_task.ps1
-```
-
-### Linux（systemd）
-安装并启动：
-```bash
-sudo bash scripts/install_runtime_host_systemd.sh --config-json ./runtime_host.config.json
-```
-
-卸载：
-```bash
-sudo bash scripts/uninstall_runtime_host_systemd.sh
-```
-
-## 验收与发布闸门
-### 基础检查
-```powershell
-sgc check src/main.sg
-```
-
-### 功能验收
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_acceptance.ps1
-```
-
-### 扩展验收（含 soak）
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_acceptance.ps1 -IncludeSoak -SoakDurationSeconds 60
-```
-
-### 发布闸门（推荐上线前必跑）
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_release_gate.ps1 -SoakDurationSeconds 60
-```
-
-### Native Release Bootstrap（进行中）
-当前仓库已增加原生可执行基线构建脚本（用于逐步替换 Python 数据面）：
+1. 构建原生产物
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_native_release.ps1
 ```
 
-默认输出：
+2. 运行原生验收
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_acceptance_native.ps1
+```
+
+3. 运行发布闸门（含 native soak）
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_release_gate.ps1 -SoakDurationSeconds 60
+```
+
+4. 一键完整验证
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_native_release.ps1 -SoakDurationSeconds 60
+```
+
+## 原生发布产物
+
+默认输出目录：
 - `release/native/windows-x64/bin/freekill-asio-sengoo-runtime.exe`
+- `release/native/windows-x64/config/runtime_host.config.json`
+- `release/native/windows-x64/scripts/start_runtime_host.ps1`
+- `release/native/windows-x64/scripts/healthcheck_runtime_host.ps1`
+- `release/native/windows-x64/scripts/install_runtime_host_service.ps1`
+- `release/native/windows-x64/scripts/uninstall_runtime_host_service.ps1`
 - `release/native/windows-x64/manifest.json`
 - `release/native/windows-x64/checksums.sha256`
 
-通过标志：
-- `Type check passed`
-- `ACCEPTANCE_OK=True`
-- `RELEASE_GATE_OK=True`
+## 服务化部署
 
-## 常见问题
-### 1. “现在编译完了吗？”
-已完成可运行交付：Sengoo 模块已通过 `sgc check`，运行时服务可直接部署。  
-注意本项目当前是“脚本运行形态”，不是单文件二进制。
+Windows（计划任务）：
 
-### 2. Protobuf 回归失败
-确认安装依赖：
 ```powershell
-pip install protobuf
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_runtime_host_windows_task_native.ps1 -StartNow -Force
 ```
 
-### 3. 端口占用或 Windows 短时端口复用报错
-- 检查监听端口冲突
-- 稍后重试或更换端口
-- 使用 watchdog 模式可提升稳定性与自恢复能力
+Linux（systemd）：
+
+```bash
+sudo bash scripts/install_runtime_host_systemd_native.sh
+```
+
+健康检查：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/healthcheck_runtime_host_native.ps1
+```
+
+## 回滚（到旧 Python 托管路径）
+
+1. 卸载 native 服务
+- Windows：`scripts/uninstall_runtime_host_windows_task_native.ps1`
+- Linux：`scripts/uninstall_runtime_host_systemd_native.sh`
+
+2. 恢复旧服务
+- Windows：`scripts/install_runtime_host_windows_task.ps1`
+- Linux：`scripts/install_runtime_host_systemd.sh`
+
+3. 运行旧闸门
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_release_gate.ps1 -UseLegacyPythonAcceptance
+```
+
+## 已知限制
+
+- `sgc build` 当前 CLI 无 `--target` 参数，因此跨平台（尤其 Linux 目标）需要在对应平台或具备交叉工具链能力的环境执行构建验证。
+- 旧 Python 脚本仍保留用于迁移期诊断，但不再是默认生产闸门路径。
