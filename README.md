@@ -135,6 +135,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_accepta
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_release_gate.ps1 -SoakDurationSeconds 60
 ```
 
+### Native Release Bootstrap（进行中）
+当前仓库已增加原生可执行基线构建脚本（用于逐步替换 Python 数据面）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_native_release.ps1
+```
+
+默认输出：
+- `release/native/windows-x64/bin/freekill-asio-sengoo-runtime.exe`
+- `release/native/windows-x64/manifest.json`
+- `release/native/windows-x64/checksums.sha256`
+
 通过标志：
 - `Type check passed`
 - `ACCEPTANCE_OK=True`

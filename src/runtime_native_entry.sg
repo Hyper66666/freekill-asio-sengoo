@@ -1,0 +1,115 @@
+def default_tcp_port() -> i64
+ensures result == 9527
+{
+    9527
+}
+
+def default_udp_port() -> i64
+ensures result == 9528
+{
+    9528
+}
+
+def default_thread_count() -> i64
+ensures result == 4
+{
+    4
+}
+
+def default_tick_interval_ms() -> i64
+ensures result == 50
+{
+    50
+}
+
+def default_task_budget() -> i64
+ensures result == 256
+{
+    256
+}
+
+def flag_true() -> i64
+ensures result == 1
+{
+    1
+}
+
+def flag_false() -> i64
+ensures result == 0
+{
+    0
+}
+
+def is_port_in_range(port: i64) -> i64
+{
+    if port >= 1 && port <= 65535 {
+        flag_true()
+    } else {
+        flag_false()
+    }
+}
+
+def normalize_positive(candidate: i64, fallback_value: i64) -> i64
+requires fallback_value > 0
+ensures result > 0
+{
+    if candidate > 0 {
+        candidate
+    } else {
+        fallback_value
+    }
+}
+
+def normalize_port(candidate: i64, fallback_port: i64) -> i64
+requires fallback_port >= 1 && fallback_port <= 65535
+ensures result >= 1 && result <= 65535
+{
+    if is_port_in_range(candidate) > 0 {
+        candidate
+    } else {
+        fallback_port
+    }
+}
+
+def validate_native_runtime_config(
+    tcp_port: i64,
+    udp_port: i64,
+    thread_count: i64,
+    tick_interval_ms: i64,
+    task_budget: i64,
+) -> i64
+ensures result >= 0
+{
+    if is_port_in_range(tcp_port) == 0 {
+        2
+    } else if is_port_in_range(udp_port) == 0 {
+        3
+    } else if tcp_port == udp_port {
+        4
+    } else if thread_count <= 0 {
+        5
+    } else if tick_interval_ms <= 0 {
+        6
+    } else if task_budget <= 0 {
+        7
+    } else {
+        0
+    }
+}
+
+def main() -> i64
+ensures result >= 0
+{
+    let tcp_port = normalize_port(default_tcp_port(), default_tcp_port());
+    let udp_port = normalize_port(default_udp_port(), default_udp_port());
+    let thread_count = normalize_positive(default_thread_count(), default_thread_count());
+    let tick_interval_ms = normalize_positive(default_tick_interval_ms(), default_tick_interval_ms());
+    let task_budget = normalize_positive(default_task_budget(), default_task_budget());
+    validate_native_runtime_config(
+        tcp_port,
+        udp_port,
+        thread_count,
+        tick_interval_ms,
+        task_budget,
+    )
+}
