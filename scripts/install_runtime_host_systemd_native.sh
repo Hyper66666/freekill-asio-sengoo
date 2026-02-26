@@ -33,7 +33,11 @@ fi
 
 REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
 if [[ -z "$BINARY_PATH" ]]; then
-  BINARY_PATH="$REPO_ROOT/release/native/linux-x64/bin/freekill-asio-sengoo-runtime"
+  if [[ -f "$REPO_ROOT/bin/freekill-asio-sengoo-runtime" ]]; then
+    BINARY_PATH="$REPO_ROOT/bin/freekill-asio-sengoo-runtime"
+  else
+    BINARY_PATH="$REPO_ROOT/release/native/linux-x64/bin/freekill-asio-sengoo-runtime"
+  fi
 fi
 if [[ ! -f "$BINARY_PATH" ]]; then
   echo "native runtime binary not found: $BINARY_PATH" >&2
