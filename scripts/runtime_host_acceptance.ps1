@@ -15,6 +15,18 @@ param(
   [string]$LiveSmokeReportPath = ".tmp/runtime_host/runtime_host_live_smoke_report.json",
 
   [Parameter(Mandatory = $false)]
+  [switch]$IncludeSoak,
+
+  [Parameter(Mandatory = $false)]
+  [string]$SoakScriptPath = "scripts/runtime_host_soak.ps1",
+
+  [Parameter(Mandatory = $false)]
+  [string]$SoakReportPath = ".tmp/runtime_host/runtime_host_soak_report.json",
+
+  [Parameter(Mandatory = $false)]
+  [int]$SoakDurationSeconds = 20,
+
+  [Parameter(Mandatory = $false)]
   [string]$OutputPath = ".tmp/runtime_host/runtime_host_acceptance.json"
 )
 
@@ -36,6 +48,9 @@ if (-not (Test-Path $AckReplayScriptPath)) {
 }
 if (-not (Test-Path $LiveSmokeScriptPath)) {
   throw "live smoke script not found: $LiveSmokeScriptPath"
+}
+if ($IncludeSoak -and -not (Test-Path $SoakScriptPath)) {
+  throw "soak script not found: $SoakScriptPath"
 }
 
 $targets = @(
@@ -100,7 +115,25 @@ if (-not (Test-Path $LiveSmokeReportPath)) {
 $liveSmokeReport = Get-Content -Raw $LiveSmokeReportPath | ConvertFrom-Json
 $liveSmokeOk = [bool]$liveSmokeReport.pass
 
-$overallOk = $ackHealthOk -and $liveSmokeOk
+$soakExecuted = [bool]$IncludeSoak
+$soakOk = $true
+$soakReportResolvedPath = ""
+if ($IncludeSoak) {
+  powershell -NoProfile -ExecutionPolicy Bypass -File $SoakScriptPath `
+    -DurationSeconds $SoakDurationSeconds `
+    -OutputPath $SoakReportPath | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw "runtime host soak failed"
+  }
+  if (-not (Test-Path $SoakReportPath)) {
+    throw "missing runtime host soak report: $SoakReportPath"
+  }
+  $soakReport = Get-Content -Raw $SoakReportPath | ConvertFrom-Json
+  $soakOk = [bool]$soakReport.pass
+  $soakReportResolvedPath = (Resolve-Path $SoakReportPath).Path
+}
+
+$overallOk = $ackHealthOk -and $liveSmokeOk -and $soakOk
 
 $summary = [ordered]@{
   generated_at_utc = (Get-Date).ToUniversalTime().ToString("o")
@@ -119,6 +152,12 @@ $summary = [ordered]@{
     report_path = (Resolve-Path $LiveSmokeReportPath).Path
     tcp_port = [int64]$liveSmokeReport.tcp_port
     udp_port = [int64]$liveSmokeReport.udp_port
+  }
+  soak = [ordered]@{
+    executed = $soakExecuted
+    pass = $soakOk
+    report_path = $soakReportResolvedPath
+    duration_seconds = $SoakDurationSeconds
   }
 }
 
