@@ -9,6 +9,12 @@ param(
   [string]$AckReplayReportPath = ".tmp/runtime_host/ack_replay_report.json",
 
   [Parameter(Mandatory = $false)]
+  [string]$LiveSmokeScriptPath = "scripts/runtime_host_live_smoke.ps1",
+
+  [Parameter(Mandatory = $false)]
+  [string]$LiveSmokeReportPath = ".tmp/runtime_host/runtime_host_live_smoke_report.json",
+
+  [Parameter(Mandatory = $false)]
   [string]$OutputPath = ".tmp/runtime_host/runtime_host_acceptance.json"
 )
 
@@ -27,6 +33,9 @@ if (-not (Test-Path $SgcPath)) {
 }
 if (-not (Test-Path $AckReplayScriptPath)) {
   throw "ack replay script not found: $AckReplayScriptPath"
+}
+if (-not (Test-Path $LiveSmokeScriptPath)) {
+  throw "live smoke script not found: $LiveSmokeScriptPath"
 }
 
 $targets = @(
@@ -79,7 +88,19 @@ $ackError = [int64]$ackReport.totals.ack_error
 $inflightFinal = [int64]$ackReport.totals.inflight_final
 $ackHealthOk = ($emitted -gt 0) -and (($ackOk + $ackError) -le $emitted) -and ($inflightFinal -eq 0)
 
-$overallOk = $ackHealthOk
+powershell -NoProfile -ExecutionPolicy Bypass -File $LiveSmokeScriptPath -OutputPath $LiveSmokeReportPath | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  throw "runtime host live smoke failed"
+}
+
+if (-not (Test-Path $LiveSmokeReportPath)) {
+  throw "missing runtime host live smoke report: $LiveSmokeReportPath"
+}
+
+$liveSmokeReport = Get-Content -Raw $LiveSmokeReportPath | ConvertFrom-Json
+$liveSmokeOk = [bool]$liveSmokeReport.pass
+
+$overallOk = $ackHealthOk -and $liveSmokeOk
 
 $summary = [ordered]@{
   generated_at_utc = (Get-Date).ToUniversalTime().ToString("o")
@@ -92,6 +113,12 @@ $summary = [ordered]@{
     inflight_final = $inflightFinal
     health_ok = $ackHealthOk
     report_path = (Resolve-Path $AckReplayReportPath).Path
+  }
+  live_smoke = [ordered]@{
+    pass = $liveSmokeOk
+    report_path = (Resolve-Path $LiveSmokeReportPath).Path
+    tcp_port = [int64]$liveSmokeReport.tcp_port
+    udp_port = [int64]$liveSmokeReport.udp_port
   }
 }
 
