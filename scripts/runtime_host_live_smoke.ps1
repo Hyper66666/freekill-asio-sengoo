@@ -46,31 +46,39 @@ function Wait-TcpPort([string]$endpointHost, [int]$port, [int]$timeoutMs) {
 }
 
 function Invoke-TcpCommand([string]$endpointHost, [int]$port, [string]$command) {
-  $client = [System.Net.Sockets.TcpClient]::new()
-  try {
-    $client.Connect($endpointHost, $port)
-    $stream = $client.GetStream()
-    $stream.ReadTimeout = 2000
-    $stream.WriteTimeout = 2000
-    $payload = [System.Text.Encoding]::UTF8.GetBytes($command + "`n")
-    $stream.Write($payload, 0, $payload.Length)
-    $stream.Flush()
+  $lastError = $null
+  for ($attempt = 0; $attempt -lt 20; $attempt++) {
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+      $client.Connect($endpointHost, $port)
+      $stream = $client.GetStream()
+      $stream.ReadTimeout = 2000
+      $stream.WriteTimeout = 2000
+      $payload = [System.Text.Encoding]::UTF8.GetBytes($command + "`n")
+      $stream.Write($payload, 0, $payload.Length)
+      $stream.Flush()
 
-    $bytes = New-Object 'System.Collections.Generic.List[byte]'
-    while ($true) {
-      $next = $stream.ReadByte()
-      if ($next -lt 0 -or $next -eq 10) {
-        break
+      $bytes = New-Object 'System.Collections.Generic.List[byte]'
+      while ($true) {
+        $next = $stream.ReadByte()
+        if ($next -lt 0 -or $next -eq 10) {
+          break
+        }
+        if ($next -ne 13) {
+          $bytes.Add([byte]$next)
+        }
       }
-      if ($next -ne 13) {
-        $bytes.Add([byte]$next)
-      }
+      return [System.Text.Encoding]::UTF8.GetString($bytes.ToArray())
     }
-    return [System.Text.Encoding]::UTF8.GetString($bytes.ToArray())
+    catch {
+      $lastError = $_
+      Start-Sleep -Milliseconds 100
+    }
+    finally {
+      $client.Dispose()
+    }
   }
-  finally {
-    $client.Dispose()
-  }
+  throw $lastError
 }
 
 function Invoke-UdpCommand([string]$endpointHost, [int]$port, [string]$command) {
@@ -101,32 +109,40 @@ function Invoke-TcpBinaryRoundtrip(
   for ($i = 0; $i -lt $requestBytes.Length; $i++) {
     $requestBytes[$i] = [Convert]::ToByte($requestHex.Substring($i * 2, 2), 16)
   }
-  $client = [System.Net.Sockets.TcpClient]::new()
-  try {
-    $client.Connect($endpointHost, $port)
-    $stream = $client.GetStream()
-    $stream.ReadTimeout = 2000
-    $stream.WriteTimeout = 2000
-    $stream.Write($requestBytes, 0, $requestBytes.Length)
-    $stream.Flush()
+  $lastError = $null
+  for ($attempt = 0; $attempt -lt 20; $attempt++) {
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+      $client.Connect($endpointHost, $port)
+      $stream = $client.GetStream()
+      $stream.ReadTimeout = 2000
+      $stream.WriteTimeout = 2000
+      $stream.Write($requestBytes, 0, $requestBytes.Length)
+      $stream.Flush()
 
-    $buffer = New-Object byte[] $expectedResponseBytes
-    $offset = 0
-    while ($offset -lt $expectedResponseBytes) {
-      $read = $stream.Read($buffer, $offset, $expectedResponseBytes - $offset)
-      if ($read -le 0) {
-        break
+      $buffer = New-Object byte[] $expectedResponseBytes
+      $offset = 0
+      while ($offset -lt $expectedResponseBytes) {
+        $read = $stream.Read($buffer, $offset, $expectedResponseBytes - $offset)
+        if ($read -le 0) {
+          break
+        }
+        $offset += $read
       }
-      $offset += $read
+      if ($offset -ne $expectedResponseBytes) {
+        return ""
+      }
+      return [System.BitConverter]::ToString($buffer).Replace("-", "").ToLowerInvariant()
     }
-    if ($offset -ne $expectedResponseBytes) {
-      return ""
+    catch {
+      $lastError = $_
+      Start-Sleep -Milliseconds 100
     }
-    return [System.BitConverter]::ToString($buffer).Replace("-", "").ToLowerInvariant()
+    finally {
+      $client.Dispose()
+    }
   }
-  finally {
-    $client.Dispose()
-  }
+  throw $lastError
 }
 
 function Ensure-ParentDir([string]$path) {

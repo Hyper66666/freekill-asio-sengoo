@@ -118,13 +118,19 @@ def tcp_worker(
     stats: ProtocolStats,
 ) -> None:
     request = b"M1_CONN_PING\n"
+    sock: socket.socket | None = None
+    connected = False
     while time.perf_counter() < deadline:
         started = time.perf_counter()
         try:
-            with socket.create_connection((host, port), timeout=timeout_s) as sock:
+            if not connected or sock is None:
+                sock = socket.create_connection((host, port), timeout=timeout_s)
                 sock.settimeout(timeout_s)
-                sock.sendall(request)
-                response = read_line(sock)
+                connected = True
+            sock.sendall(request)
+            response = read_line(sock)
+            if not response:
+                raise OSError("empty tcp response")
             latency_ms = (time.perf_counter() - started) * 1000.0
             if response == b"M1_CONN_PONG":
                 stats.record_success(latency_ms, len(request), len(response))
@@ -132,8 +138,27 @@ def tcp_worker(
                 stats.record_failure(f"bad_tcp_reply:{response.decode('utf-8', errors='replace')}", len(request), len(response))
         except socket.timeout:
             stats.record_failure("tcp_timeout", len(request), 0)
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+            sock = None
+            connected = False
         except OSError as exc:
             stats.record_failure(f"tcp_oserror:{exc.__class__.__name__}", len(request), 0)
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+            sock = None
+            connected = False
+    if sock is not None:
+        try:
+            sock.close()
+        except OSError:
+            pass
 
 
 def udp_worker(
@@ -167,18 +192,22 @@ def udp_worker(
 
 def fetch_metrics(host: str, port: int, timeout_s: float) -> Dict[str, Any]:
     request = b"__METRICS__\n"
-    try:
-        with socket.create_connection((host, port), timeout=timeout_s) as sock:
-            sock.settimeout(timeout_s)
-            sock.sendall(request)
-            payload = read_line(sock, max_bytes=32768)
-        text = payload.decode("utf-8", errors="replace")
-        parsed = json.loads(text)
-        if isinstance(parsed, dict):
-            return parsed
-        return {"metrics_parse_error": "metrics payload is not an object"}
-    except Exception as exc:  # pylint: disable=broad-except
-        return {"metrics_fetch_error": f"{exc.__class__.__name__}: {exc}"}
+    last_error = ""
+    for attempt in range(12):
+        try:
+            with socket.create_connection((host, port), timeout=timeout_s) as sock:
+                sock.settimeout(timeout_s)
+                sock.sendall(request)
+                payload = read_line(sock, max_bytes=32768)
+            text = payload.decode("utf-8", errors="replace")
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                return parsed
+            last_error = "metrics payload is not an object"
+        except Exception as exc:  # pylint: disable=broad-except
+            last_error = f"{exc.__class__.__name__}: {exc}"
+        time.sleep(0.2 + (attempt * 0.02))
+    return {"metrics_fetch_error": last_error}
 
 
 def main() -> int:

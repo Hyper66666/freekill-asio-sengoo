@@ -118,6 +118,17 @@ function Ensure-ParentDir([string]$path) {
   }
 }
 
+function Get-Int64PropertyOrDefault($obj, [string]$propertyName, [int64]$defaultValue) {
+  if ($null -eq $obj) {
+    return $defaultValue
+  }
+  $prop = $obj.PSObject.Properties[$propertyName]
+  if ($null -eq $prop) {
+    return $defaultValue
+  }
+  return [int64]$prop.Value
+}
+
 $tmpRoot = ".tmp/runtime_host_soak"
 $endpointHost = "127.0.0.1"
 $tcpPort = Get-FreeTcpPort
@@ -163,7 +174,13 @@ try {
     -RedirectStandardOutput $stdoutLog `
     -RedirectStandardError $stderrLog
 
-  Wait-TcpPort -endpointHost $endpointHost -port $tcpPort -timeoutMs 8000
+  Start-Sleep -Milliseconds 200
+  if ($proc.HasExited) {
+    $stderr = if (Test-Path $stderrLog) { (Get-Content -Raw $stderrLog) } else { "" }
+    throw ("runtime host exited early before readiness; exit={0}; stderr={1}" -f $proc.ExitCode, $stderr)
+  }
+
+  Wait-TcpPort -endpointHost $endpointHost -port $tcpPort -timeoutMs 15000
   Start-Sleep -Milliseconds 200
 
   & $PythonExe $stressPath `
@@ -197,12 +214,14 @@ try {
   $udpFailureRate = [double]$stress.udp.failure_rate
   $metrics = $stress.metrics
   $runOk = [bool]$stress.run_ok
-  $timerTickCount = [int64]$metrics.timer_tick_count
-  $ioPollCount = [int64]$metrics.io_poll_count
-  $errorCount = [int64]$metrics.error_count
+  $timerTickCount = Get-Int64PropertyOrDefault -obj $metrics -propertyName "timer_tick_count" -defaultValue -1
+  $ioPollCount = Get-Int64PropertyOrDefault -obj $metrics -propertyName "io_poll_count" -defaultValue -1
+  $errorCount = Get-Int64PropertyOrDefault -obj $metrics -propertyName "error_count" -defaultValue 2147483647
+  $hasMetricsError = $null -ne $metrics.PSObject.Properties["metrics_fetch_error"]
 
   $pass = $runOk `
     -and ($stopReply -eq "__STOP_OK__") `
+    -and (-not $hasMetricsError) `
     -and ($overallFailureRate -le $MaxFailureRate) `
     -and ($tcpFailureRate -le $MaxFailureRate) `
     -and ($udpFailureRate -le $MaxFailureRate) `
@@ -230,6 +249,7 @@ try {
       overall_throughput_rps = $overallThroughput
       tcp_failure_rate = $tcpFailureRate
       udp_failure_rate = $udpFailureRate
+      metrics_fetch_error = if ($hasMetricsError) { [string]$metrics.metrics_fetch_error } else { "" }
       timer_tick_count = $timerTickCount
       io_poll_count = $ioPollCount
       error_count = $errorCount

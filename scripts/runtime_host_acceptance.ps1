@@ -21,6 +21,15 @@ param(
   [string]$ConfigSmokeReportPath = ".tmp/runtime_host/runtime_host_config_smoke_report.json",
 
   [Parameter(Mandatory = $false)]
+  [switch]$IncludeWatchdogSmoke,
+
+  [Parameter(Mandatory = $false)]
+  [string]$WatchdogSmokeScriptPath = "scripts/runtime_host_watchdog_smoke.ps1",
+
+  [Parameter(Mandatory = $false)]
+  [string]$WatchdogSmokeReportPath = ".tmp/runtime_host/runtime_host_watchdog_smoke_report.json",
+
+  [Parameter(Mandatory = $false)]
   [switch]$IncludeSoak,
 
   [Parameter(Mandatory = $false)]
@@ -57,6 +66,9 @@ if (-not (Test-Path $LiveSmokeScriptPath)) {
 }
 if (-not (Test-Path $ConfigSmokeScriptPath)) {
   throw "config smoke script not found: $ConfigSmokeScriptPath"
+}
+if ($IncludeWatchdogSmoke -and -not (Test-Path $WatchdogSmokeScriptPath)) {
+  throw "watchdog smoke script not found: $WatchdogSmokeScriptPath"
 }
 if ($IncludeSoak -and -not (Test-Path $SoakScriptPath)) {
   throw "soak script not found: $SoakScriptPath"
@@ -136,6 +148,22 @@ if (-not (Test-Path $ConfigSmokeReportPath)) {
 $configSmokeReport = Get-Content -Raw $ConfigSmokeReportPath | ConvertFrom-Json
 $configSmokeOk = [bool]$configSmokeReport.pass
 
+$watchdogSmokeExecuted = [bool]$IncludeWatchdogSmoke
+$watchdogSmokeOk = $true
+$watchdogSmokeResolvedPath = ""
+if ($IncludeWatchdogSmoke) {
+  powershell -NoProfile -ExecutionPolicy Bypass -File $WatchdogSmokeScriptPath -OutputPath $WatchdogSmokeReportPath | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw "runtime host watchdog smoke failed"
+  }
+  if (-not (Test-Path $WatchdogSmokeReportPath)) {
+    throw "missing runtime host watchdog smoke report: $WatchdogSmokeReportPath"
+  }
+  $watchdogSmokeReport = Get-Content -Raw $WatchdogSmokeReportPath | ConvertFrom-Json
+  $watchdogSmokeOk = [bool]$watchdogSmokeReport.pass
+  $watchdogSmokeResolvedPath = (Resolve-Path $WatchdogSmokeReportPath).Path
+}
+
 $soakExecuted = [bool]$IncludeSoak
 $soakOk = $true
 $soakReportResolvedPath = ""
@@ -154,7 +182,7 @@ if ($IncludeSoak) {
   $soakReportResolvedPath = (Resolve-Path $SoakReportPath).Path
 }
 
-$overallOk = $ackHealthOk -and $liveSmokeOk -and $configSmokeOk -and $soakOk
+$overallOk = $ackHealthOk -and $liveSmokeOk -and $configSmokeOk -and $watchdogSmokeOk -and $soakOk
 
 $summary = [ordered]@{
   generated_at_utc = (Get-Date).ToUniversalTime().ToString("o")
@@ -180,6 +208,11 @@ $summary = [ordered]@{
     runtime_name = [string]$configSmokeReport.runtime_name
     tcp_port = [int64]$configSmokeReport.tcp_port
     udp_port = [int64]$configSmokeReport.udp_port
+  }
+  watchdog_smoke = [ordered]@{
+    executed = $watchdogSmokeExecuted
+    pass = $watchdogSmokeOk
+    report_path = $watchdogSmokeResolvedPath
   }
   soak = [ordered]@{
     executed = $soakExecuted
