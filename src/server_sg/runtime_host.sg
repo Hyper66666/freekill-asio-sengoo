@@ -1,0 +1,929 @@
+def normalize_runtime_host_port(candidate_port: i64, fallback_port: i64) -> i64
+requires fallback_port >= 1024 && fallback_port <= 65535
+ensures result >= 1024 && result <= 65535
+{
+    if candidate_port >= 1024 && candidate_port <= 65535 {
+        candidate_port
+    } else {
+        fallback_port
+    }
+}
+
+def normalize_runtime_host_positive(candidate_value: i64, fallback_value: i64) -> i64
+requires fallback_value > 0
+ensures result > 0
+{
+    if candidate_value > 0 {
+        candidate_value
+    } else {
+        fallback_value
+    }
+}
+
+def route_key_to_thread_id(route_key_hash: i64, thread_count: i64) -> i64
+requires route_key_hash >= 0 && thread_count > 0
+ensures result >= 0 && result < thread_count
+{
+    route_key_hash % thread_count
+}
+
+struct RuntimeHostState {
+    running: bool,
+    stop_requested: bool,
+    tcp_listen_port: i64,
+    udp_listen_port: i64,
+    io_thread_count: i64,
+    tick_interval_ms: i64,
+    task_budget: i64,
+    active_connection_count: i64,
+    accepted_connection_count: i64,
+    rejected_connection_count: i64,
+    packet_rx_count: i64,
+    packet_tx_count: i64,
+    rx_bytes: i64,
+    tx_bytes: i64,
+    lua_script_version: i64,
+    lua_reload_count: i64,
+    protobuf_pass_count: i64,
+    protobuf_fail_count: i64,
+    persist_write_count: i64,
+    persist_read_count: i64,
+    persist_hit_count: i64,
+    persist_miss_count: i64,
+    route_stable_count: i64,
+    route_mismatch_count: i64,
+    io_poll_count: i64,
+    timer_tick_count: i64,
+    async_schedule_count: i64,
+    async_complete_count: i64,
+    error_count: i64,
+    rejected_operation_count: i64,
+}
+
+struct RuntimeHostTransitionResult {
+    state: RuntimeHostState,
+    applied: bool,
+    reason_code: i64,
+    thread_id: i64,
+}
+
+def new_runtime_host_state(
+    tcp_port: i64,
+    udp_port: i64,
+    fallback_tcp_port: i64,
+    fallback_udp_port: i64,
+    io_thread_count: i64,
+    fallback_thread_count: i64,
+    tick_interval_ms: i64,
+    fallback_tick_interval_ms: i64,
+    task_budget: i64,
+    fallback_task_budget: i64,
+) -> RuntimeHostState
+requires fallback_tcp_port >= 1024 && fallback_tcp_port <= 65535
+    && fallback_udp_port >= 1024 && fallback_udp_port <= 65535
+    && fallback_thread_count > 0
+    && fallback_tick_interval_ms > 0
+    && fallback_task_budget > 0
+{
+    RuntimeHostState {
+        running: false,
+        stop_requested: false,
+        tcp_listen_port: normalize_runtime_host_port(tcp_port, fallback_tcp_port),
+        udp_listen_port: normalize_runtime_host_port(udp_port, fallback_udp_port),
+        io_thread_count: normalize_runtime_host_positive(io_thread_count, fallback_thread_count),
+        tick_interval_ms: normalize_runtime_host_positive(tick_interval_ms, fallback_tick_interval_ms),
+        task_budget: normalize_runtime_host_positive(task_budget, fallback_task_budget),
+        active_connection_count: 0,
+        accepted_connection_count: 0,
+        rejected_connection_count: 0,
+        packet_rx_count: 0,
+        packet_tx_count: 0,
+        rx_bytes: 0,
+        tx_bytes: 0,
+        lua_script_version: 1,
+        lua_reload_count: 0,
+        protobuf_pass_count: 0,
+        protobuf_fail_count: 0,
+        persist_write_count: 0,
+        persist_read_count: 0,
+        persist_hit_count: 0,
+        persist_miss_count: 0,
+        route_stable_count: 0,
+        route_mismatch_count: 0,
+        io_poll_count: 0,
+        timer_tick_count: 0,
+        async_schedule_count: 0,
+        async_complete_count: 0,
+        error_count: 0,
+        rejected_operation_count: 0,
+    }
+}
+
+def apply_runtime_host_start(state: RuntimeHostState) -> RuntimeHostTransitionResult
+{
+    if state.running {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9201,
+            thread_id: -1,
+        }
+    } else {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: true,
+                stop_requested: false,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+            thread_id: -1,
+        }
+    }
+}
+
+def apply_runtime_host_accept_connection(
+    state: RuntimeHostState,
+    allow_accept: bool,
+    max_active_connection_count: i64,
+) -> RuntimeHostTransitionResult
+requires max_active_connection_count > 0
+{
+    if !state.running || !allow_accept || state.active_connection_count >= max_active_connection_count {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count + 1,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9202,
+            thread_id: -1,
+        }
+    } else {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count + 1,
+                accepted_connection_count: state.accepted_connection_count + 1,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+            thread_id: -1,
+        }
+    }
+}
+
+def apply_runtime_host_packet_io(
+    state: RuntimeHostState,
+    is_receive: bool,
+    packet_bytes: i64,
+    max_packet_bytes: i64,
+) -> RuntimeHostTransitionResult
+requires packet_bytes >= 0 && max_packet_bytes > 0
+{
+    if !state.running || packet_bytes == 0 || packet_bytes > max_packet_bytes {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9203,
+            thread_id: -1,
+        }
+    } else {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: if is_receive { state.packet_rx_count + 1 } else { state.packet_rx_count },
+                packet_tx_count: if is_receive { state.packet_tx_count } else { state.packet_tx_count + 1 },
+                rx_bytes: if is_receive { state.rx_bytes + packet_bytes } else { state.rx_bytes },
+                tx_bytes: if is_receive { state.tx_bytes } else { state.tx_bytes + packet_bytes },
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+            thread_id: -1,
+        }
+    }
+}
+
+def apply_runtime_host_lua_reload(
+    state: RuntimeHostState,
+    reload_ok: bool,
+    next_lua_script_version: i64,
+) -> RuntimeHostTransitionResult
+requires next_lua_script_version > 0
+{
+    if !state.running || !reload_ok || next_lua_script_version <= state.lua_script_version {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9204,
+            thread_id: -1,
+        }
+    } else {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: next_lua_script_version,
+                lua_reload_count: state.lua_reload_count + 1,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+            thread_id: -1,
+        }
+    }
+}
+
+def apply_runtime_host_protobuf_case(
+    state: RuntimeHostState,
+    case_passed: bool,
+) -> RuntimeHostTransitionResult
+{
+    if !state.running {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9202,
+            thread_id: -1,
+        }
+    } else {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: if case_passed { state.protobuf_pass_count + 1 } else { state.protobuf_pass_count },
+                protobuf_fail_count: if case_passed { state.protobuf_fail_count } else { state.protobuf_fail_count + 1 },
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: if case_passed { state.error_count } else { state.error_count + 1 },
+                rejected_operation_count: if case_passed {
+                    state.rejected_operation_count
+                } else {
+                    state.rejected_operation_count + 1
+                },
+            },
+            applied: case_passed,
+            reason_code: if case_passed { 0 } else { 9205 },
+            thread_id: -1,
+        }
+    }
+}
+
+def apply_runtime_host_persist_access(
+    state: RuntimeHostState,
+    is_write: bool,
+    read_hit: bool,
+) -> RuntimeHostTransitionResult
+{
+    if !state.running {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9202,
+            thread_id: -1,
+        }
+    } else {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: if is_write { state.persist_write_count + 1 } else { state.persist_write_count },
+                persist_read_count: if is_write { state.persist_read_count } else { state.persist_read_count + 1 },
+                persist_hit_count: if is_write {
+                    state.persist_hit_count
+                } else if read_hit {
+                    state.persist_hit_count + 1
+                } else {
+                    state.persist_hit_count
+                },
+                persist_miss_count: if is_write {
+                    state.persist_miss_count
+                } else if read_hit {
+                    state.persist_miss_count
+                } else {
+                    state.persist_miss_count + 1
+                },
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+            thread_id: -1,
+        }
+    }
+}
+
+def apply_runtime_host_route(
+    state: RuntimeHostState,
+    route_key_hash: i64,
+    expected_thread_id: i64,
+) -> RuntimeHostTransitionResult
+requires route_key_hash >= 0 && expected_thread_id >= -1
+{
+    if !state.running {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9202,
+            thread_id: -1,
+        }
+    } else {
+        let selected_thread_id = route_key_to_thread_id(route_key_hash, state.io_thread_count);
+        let mismatch = expected_thread_id >= 0 && expected_thread_id != selected_thread_id;
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: if mismatch { state.route_stable_count } else { state.route_stable_count + 1 },
+                route_mismatch_count: if mismatch { state.route_mismatch_count + 1 } else { state.route_mismatch_count },
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: if mismatch { state.error_count + 1 } else { state.error_count },
+                rejected_operation_count: if mismatch {
+                    state.rejected_operation_count + 1
+                } else {
+                    state.rejected_operation_count
+                },
+            },
+            applied: !mismatch,
+            reason_code: if mismatch { 9206 } else { 0 },
+            thread_id: selected_thread_id,
+        }
+    }
+}
+
+def apply_runtime_host_loop_step(
+    state: RuntimeHostState,
+    poll_count_delta: i64,
+    timer_tick: bool,
+    async_scheduled: i64,
+    async_completed: i64,
+    had_error: bool,
+) -> RuntimeHostTransitionResult
+requires poll_count_delta >= 0 && async_scheduled >= 0 && async_completed >= 0
+{
+    if !state.running {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9202,
+            thread_id: -1,
+        }
+    } else {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count + poll_count_delta,
+                timer_tick_count: if timer_tick { state.timer_tick_count + 1 } else { state.timer_tick_count },
+                async_schedule_count: state.async_schedule_count + async_scheduled,
+                async_complete_count: state.async_complete_count + async_completed,
+                error_count: if had_error { state.error_count + 1 } else { state.error_count },
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: !had_error,
+            reason_code: if had_error { 9207 } else { 0 },
+            thread_id: -1,
+        }
+    }
+}
+
+def apply_runtime_host_stop(
+    state: RuntimeHostState,
+    signal_code: i64,
+) -> RuntimeHostTransitionResult
+requires signal_code >= 0
+{
+    if !state.running {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: state.running,
+                stop_requested: state.stop_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: state.active_connection_count,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9208,
+            thread_id: -1,
+        }
+    } else {
+        RuntimeHostTransitionResult {
+            state: RuntimeHostState {
+                running: false,
+                stop_requested: true,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                active_connection_count: 0,
+                accepted_connection_count: state.accepted_connection_count,
+                rejected_connection_count: state.rejected_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                lua_script_version: state.lua_script_version,
+                lua_reload_count: state.lua_reload_count,
+                protobuf_pass_count: state.protobuf_pass_count,
+                protobuf_fail_count: state.protobuf_fail_count,
+                persist_write_count: state.persist_write_count,
+                persist_read_count: state.persist_read_count,
+                persist_hit_count: state.persist_hit_count,
+                persist_miss_count: state.persist_miss_count,
+                route_stable_count: state.route_stable_count,
+                route_mismatch_count: state.route_mismatch_count,
+                io_poll_count: state.io_poll_count,
+                timer_tick_count: state.timer_tick_count,
+                async_schedule_count: state.async_schedule_count,
+                async_complete_count: state.async_complete_count,
+                error_count: if signal_code == 0 { state.error_count + 1 } else { state.error_count },
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+            thread_id: -1,
+        }
+    }
+}
+
+def should_runtime_host_backpressure(
+    state: RuntimeHostState,
+    max_active_connection_count: i64,
+) -> bool
+requires max_active_connection_count >= 0
+{
+    state.active_connection_count >= max_active_connection_count
+}
+
+def can_runtime_host_accept_loop_step(
+    state: RuntimeHostState,
+    max_error_count: i64,
+) -> bool
+requires max_error_count >= 0
+{
+    state.running && !state.stop_requested && state.error_count <= max_error_count
+}
