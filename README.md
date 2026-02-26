@@ -33,8 +33,11 @@
 - `src/ffi_bridge_sg/`：C wrapper、RPC bridge、Lua FFI bridge
 - `src/server_sg/`：服务编排、runtime host、sqlite store
 - `scripts/runtime_host_acceptance.ps1`：核心验收脚本（可选包含 soak）
+- `scripts/runtime_host_release_gate.ps1`：发布前一键闸门（watchdog + soak）
 - `scripts/runtime_host_server.py`：可部署 runtime-host 进程
 - `scripts/start_runtime_host.ps1`：启动封装（支持 `--config-json`）
+- `scripts/start_runtime_host_watchdog.ps1`：守护进程启动封装
+- `scripts/runtime_host_healthcheck.py` / `scripts/runtime_host_healthcheck.ps1`：健康探针
 - `scripts/runtime_host.config.example.json`：配置模板
 
 ## 启动方式
@@ -51,12 +54,51 @@ python scripts/runtime_host_server.py --host 0.0.0.0 --tcp-port 9527 --db-path .
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_runtime_host.ps1 -ConfigJsonPath scripts/runtime_host.config.example.json
 ```
 
+### Watchdog（推荐生产）
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_runtime_host_watchdog.ps1 -ConfigJsonPath scripts/runtime_host.config.example.json
+```
+
+### 健康检查
+
+```powershell
+python scripts/runtime_host_healthcheck.py --host 127.0.0.1 --tcp-port 9527 --udp-port 9528 --require-udp --json-output
+```
+
+## 服务化部署
+
+### Windows 计划任务
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_runtime_host_windows_task.ps1 -ConfigJsonPath scripts/runtime_host.config.example.json -Force -StartNow
+```
+
+卸载：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall_runtime_host_windows_task.ps1
+```
+
+### Linux systemd
+
+```bash
+sudo bash scripts/install_runtime_host_systemd.sh --config-json scripts/runtime_host.config.example.json
+```
+
+卸载：
+
+```bash
+sudo bash scripts/uninstall_runtime_host_systemd.sh
+```
+
 ## 本地验证与验收
 
 ```powershell
 sgc check src/main.sg
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_acceptance.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_acceptance.ps1 -IncludeSoak -SoakDurationSeconds 60
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_release_gate.ps1 -SoakDurationSeconds 60
 ```
 
 验收通过标志：
