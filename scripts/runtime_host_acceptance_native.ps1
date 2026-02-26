@@ -15,7 +15,16 @@ param(
   [string]$ReleaseRoot = "release/native",
 
   [Parameter(Mandatory = $false)]
-  [string]$OutputPath = ".tmp/runtime_host/runtime_host_acceptance_native.json"
+  [string]$OutputPath = ".tmp/runtime_host/runtime_host_acceptance_native.json",
+
+  [Parameter(Mandatory = $false)]
+  [int]$ProbeTcpPort = 9527,
+
+  [Parameter(Mandatory = $false)]
+  [int]$ProbeWarmupMilliseconds = 1500,
+
+  [Parameter(Mandatory = $false)]
+  [int]$ProbeConnectTimeoutMs = 600
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,6 +34,21 @@ function Ensure-ParentDir([string]$path) {
   $parent = Split-Path -Parent $path
   if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path $parent)) {
     New-Item -ItemType Directory -Path $parent -Force | Out-Null
+  }
+}
+
+function Test-TcpPort([string]$targetHost, [int]$port, [int]$timeoutMs) {
+  $client = New-Object System.Net.Sockets.TcpClient
+  try {
+    $task = $client.ConnectAsync($targetHost, $port)
+    if (-not $task.Wait($timeoutMs)) {
+      return $false
+    }
+    return $client.Connected
+  } catch {
+    return $false
+  } finally {
+    $client.Dispose()
   }
 }
 
@@ -75,14 +99,22 @@ if (-not (Test-Path $binaryPath)) {
 }
 
 $smokeExitCode = [int]$manifest.smoke_exit_code
-$probe = Start-Process -FilePath $binaryPath -PassThru -Wait
-$probeExitCode = [int]$probe.ExitCode
+$probe = Start-Process -FilePath $binaryPath -PassThru
+Start-Sleep -Milliseconds $ProbeWarmupMilliseconds
+$probe.Refresh()
+$probeRunning = -not $probe.HasExited
+$probeExitCode = if ($probe.HasExited) { [int]$probe.ExitCode } else { 0 }
+$probePortOpen = $false
+if ($probeRunning) {
+  $probePortOpen = Test-TcpPort -targetHost "127.0.0.1" -port $ProbeTcpPort -timeoutMs $ProbeConnectTimeoutMs
+  Stop-Process -Id $probe.Id -Force -ErrorAction SilentlyContinue
+}
 
 $manifestHash = [string]$manifest.binary_sha256
 $actualHash = (Get-FileHash -Algorithm SHA256 -Path $binaryPath).Hash.ToLowerInvariant()
 $hashMatch = ($manifestHash.ToLowerInvariant() -eq $actualHash)
 
-$overallOk = ($smokeExitCode -eq 0) -and ($probeExitCode -eq 0) -and $hashMatch
+$overallOk = ($smokeExitCode -eq 0) -and $probeRunning -and $probePortOpen -and $hashMatch
 
 $summary = [ordered]@{
   generated_at_utc = (Get-Date).ToUniversalTime().ToString("o")
@@ -99,7 +131,10 @@ $summary = [ordered]@{
     checksum_path = (Resolve-Path $checksumPath).Path
     binary_path = (Resolve-Path $binaryPath).Path
     smoke_exit_code = $smokeExitCode
+    probe_running = $probeRunning
     probe_exit_code = $probeExitCode
+    probe_tcp_port = $ProbeTcpPort
+    probe_port_open = $probePortOpen
     hash_match = $hashMatch
   }
 }

@@ -15,7 +15,16 @@ param(
   [double]$MaxP95LatencyMs = 2000.0,
 
   [Parameter(Mandatory = $false)]
-  [string]$OutputPath = ".tmp/runtime_host/runtime_host_soak_native_report.json"
+  [string]$OutputPath = ".tmp/runtime_host/runtime_host_soak_native_report.json",
+
+  [Parameter(Mandatory = $false)]
+  [int]$ProbeTcpPort = 9527,
+
+  [Parameter(Mandatory = $false)]
+  [int]$ProbeTimeoutMs = 700,
+
+  [Parameter(Mandatory = $false)]
+  [int]$WarmupMilliseconds = 1500
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,6 +47,26 @@ function Get-P95([double[]]$values) {
   return [double]$sorted[$idx]
 }
 
+function Test-TcpPort([string]$targetHost, [int]$port, [int]$timeoutMs) {
+  $watch = [System.Diagnostics.Stopwatch]::StartNew()
+  $client = New-Object System.Net.Sockets.TcpClient
+  try {
+    $task = $client.ConnectAsync($targetHost, $port)
+    if (-not $task.Wait($timeoutMs)) {
+      $watch.Stop()
+      return [ordered]@{ ok = $false; latency_ms = [double]$watch.Elapsed.TotalMilliseconds }
+    }
+    $ok = $client.Connected
+    $watch.Stop()
+    return [ordered]@{ ok = $ok; latency_ms = [double]$watch.Elapsed.TotalMilliseconds }
+  } catch {
+    $watch.Stop()
+    return [ordered]@{ ok = $false; latency_ms = [double]$watch.Elapsed.TotalMilliseconds }
+  } finally {
+    $client.Dispose()
+  }
+}
+
 if (-not (Test-Path $BinaryPath)) {
   throw "native runtime binary not found: $BinaryPath"
 }
@@ -45,28 +74,48 @@ if ($DurationSeconds -le 0) {
   throw "DurationSeconds must be > 0"
 }
 
+$proc = Start-Process -FilePath $BinaryPath -PassThru
+Start-Sleep -Milliseconds $WarmupMilliseconds
+$proc.Refresh()
+
+$bootExited = $proc.HasExited
+$bootExitCode = if ($bootExited) { [int]$proc.ExitCode } else { 0 }
+
 $attempts = 0
 $successes = 0
 $failures = 0
 $latencies = New-Object 'System.Collections.Generic.List[double]'
 $errorCodes = New-Object 'System.Collections.Generic.List[int]'
+$aliveUntilEnd = -not $bootExited
 $wall = [System.Diagnostics.Stopwatch]::StartNew()
 
-while ($wall.Elapsed.TotalSeconds -lt $DurationSeconds) {
-  $runWatch = [System.Diagnostics.Stopwatch]::StartNew()
-  $proc = Start-Process -FilePath $BinaryPath -PassThru -Wait
-  $runWatch.Stop()
-  $attempts += 1
-  $latencies.Add([double]$runWatch.Elapsed.TotalMilliseconds) | Out-Null
+if (-not $bootExited) {
+  while ($wall.Elapsed.TotalSeconds -lt $DurationSeconds) {
+    $attempts += 1
+    $proc.Refresh()
+    if ($proc.HasExited) {
+      $aliveUntilEnd = $false
+      $failures += 1
+      $errorCodes.Add([int]$proc.ExitCode) | Out-Null
+      break
+    }
 
-  if ([int]$proc.ExitCode -eq 0) {
-    $successes += 1
-  } else {
-    $failures += 1
-    $errorCodes.Add([int]$proc.ExitCode) | Out-Null
+    $probe = Test-TcpPort -targetHost "127.0.0.1" -port $ProbeTcpPort -timeoutMs $ProbeTimeoutMs
+    $latencies.Add([double]$probe.latency_ms) | Out-Null
+    if ([bool]$probe.ok) {
+      $successes += 1
+    } else {
+      $failures += 1
+    }
+    Start-Sleep -Milliseconds 1000
   }
 }
 $wall.Stop()
+
+$proc.Refresh()
+if (-not $proc.HasExited) {
+  Stop-Process -Id $proc.Id -Force
+}
 
 $elapsedSeconds = [double][Math]::Max(0.001, $wall.Elapsed.TotalSeconds)
 $failureRate = if ($attempts -gt 0) { [double]$failures / [double]$attempts } else { 1.0 }
@@ -78,7 +127,9 @@ $latencyAvgMs = if ($latencies.Count -gt 0) {
   0.0
 }
 
-$pass = ($attempts -gt 0) `
+$pass = (-not $bootExited) `
+  -and $aliveUntilEnd `
+  -and ($attempts -gt 0) `
   -and ($failureRate -le $MaxFailureRate) `
   -and ($throughputRps -ge $MinThroughputRps) `
   -and ($latencyP95Ms -le $MaxP95LatencyMs)
@@ -94,6 +145,15 @@ $report = [ordered]@{
     min_throughput_rps = $MinThroughputRps
     max_p95_latency_ms = $MaxP95LatencyMs
   }
+  boot = [ordered]@{
+    exited_during_warmup = $bootExited
+    warmup_exit_code = $bootExitCode
+    warmup_ms = $WarmupMilliseconds
+  }
+  probe = [ordered]@{
+    tcp_port = $ProbeTcpPort
+    timeout_ms = $ProbeTimeoutMs
+  }
   metrics = [ordered]@{
     attempts = $attempts
     successes = $successes
@@ -102,6 +162,7 @@ $report = [ordered]@{
     throughput_rps = $throughputRps
     latency_avg_ms = $latencyAvgMs
     latency_p95_ms = $latencyP95Ms
+    alive_until_end = $aliveUntilEnd
     nonzero_exit_codes = $errorCodes
   }
 }

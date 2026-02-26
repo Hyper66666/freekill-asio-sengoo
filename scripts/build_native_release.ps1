@@ -15,7 +15,10 @@ param(
   [string]$BinaryName = "",
 
   [Parameter(Mandatory = $false)]
-  [string]$ManifestPath = ""
+  [string]$ManifestPath = "",
+
+  [Parameter(Mandatory = $false)]
+  [int]$SmokeProbeMilliseconds = 1200
 )
 
 $ErrorActionPreference = "Stop"
@@ -68,8 +71,17 @@ if (-not (Test-Path $outputBinary)) {
   throw "missing output binary: $outputBinary"
 }
 
-$smoke = Start-Process -FilePath $outputBinary -PassThru -Wait
-$smokeExitCode = [int]$smoke.ExitCode
+$smoke = Start-Process -FilePath $outputBinary -PassThru
+Start-Sleep -Milliseconds $SmokeProbeMilliseconds
+$smoke.Refresh()
+$smokeExitCode = 0
+$smokeMode = "running"
+if ($smoke.HasExited) {
+  $smokeExitCode = [int]$smoke.ExitCode
+  $smokeMode = "exited"
+} else {
+  Stop-Process -Id $smoke.Id -Force
+}
 
 $hash = (Get-FileHash -Algorithm SHA256 -Path $outputBinary).Hash
 $manifestOut = if ([string]::IsNullOrWhiteSpace($ManifestPath)) {
@@ -136,6 +148,8 @@ $manifest = [ordered]@{
   binary_path = (Resolve-Path $outputBinary).Path
   binary_sha256 = $hash
   smoke_exit_code = $smokeExitCode
+  smoke_mode = $smokeMode
+  smoke_probe_ms = $SmokeProbeMilliseconds
   config_template_path = if ([string]::IsNullOrWhiteSpace($configTemplatePath)) {
     ""
   } else {
