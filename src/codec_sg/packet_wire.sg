@@ -67,3 +67,214 @@ def is_packet_roundtrip_timing_equal(
         true
     }
 }
+
+struct ProtobufCompatibilityRuntimeState {
+    case_run_count: i64,
+    case_pass_count: i64,
+    decode_failure_count: i64,
+    encode_failure_count: i64,
+    header_mismatch_count: i64,
+    payload_mismatch_count: i64,
+    rejected_operation_count: i64,
+    last_case_id: i64,
+}
+
+struct ProtobufCompatibilityTransitionResult {
+    state: ProtobufCompatibilityRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_protobuf_compatibility_runtime_state() -> ProtobufCompatibilityRuntimeState
+{
+    ProtobufCompatibilityRuntimeState {
+        case_run_count: 0,
+        case_pass_count: 0,
+        decode_failure_count: 0,
+        encode_failure_count: 0,
+        header_mismatch_count: 0,
+        payload_mismatch_count: 0,
+        rejected_operation_count: 0,
+        last_case_id: 0,
+    }
+}
+
+def apply_protobuf_decode_probe(
+    state: ProtobufCompatibilityRuntimeState,
+    case_id: i64,
+    schema_exists: bool,
+    binary_size: i64,
+    decode_ok: bool,
+) -> ProtobufCompatibilityTransitionResult
+requires case_id > 0 && binary_size >= 0
+{
+    if !schema_exists {
+        ProtobufCompatibilityTransitionResult {
+            state: ProtobufCompatibilityRuntimeState {
+                case_run_count: state.case_run_count + 1,
+                case_pass_count: state.case_pass_count,
+                decode_failure_count: state.decode_failure_count + 1,
+                encode_failure_count: state.encode_failure_count,
+                header_mismatch_count: state.header_mismatch_count,
+                payload_mismatch_count: state.payload_mismatch_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_case_id: case_id,
+            },
+            applied: false,
+            reason_code: 5601,
+        }
+    } else if binary_size == 0 {
+        ProtobufCompatibilityTransitionResult {
+            state: ProtobufCompatibilityRuntimeState {
+                case_run_count: state.case_run_count + 1,
+                case_pass_count: state.case_pass_count,
+                decode_failure_count: state.decode_failure_count + 1,
+                encode_failure_count: state.encode_failure_count,
+                header_mismatch_count: state.header_mismatch_count,
+                payload_mismatch_count: state.payload_mismatch_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_case_id: case_id,
+            },
+            applied: false,
+            reason_code: 5602,
+        }
+    } else if !decode_ok {
+        ProtobufCompatibilityTransitionResult {
+            state: ProtobufCompatibilityRuntimeState {
+                case_run_count: state.case_run_count + 1,
+                case_pass_count: state.case_pass_count,
+                decode_failure_count: state.decode_failure_count + 1,
+                encode_failure_count: state.encode_failure_count,
+                header_mismatch_count: state.header_mismatch_count,
+                payload_mismatch_count: state.payload_mismatch_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_case_id: case_id,
+            },
+            applied: false,
+            reason_code: 5603,
+        }
+    } else {
+        ProtobufCompatibilityTransitionResult {
+            state: ProtobufCompatibilityRuntimeState {
+                case_run_count: state.case_run_count + 1,
+                case_pass_count: state.case_pass_count,
+                decode_failure_count: state.decode_failure_count,
+                encode_failure_count: state.encode_failure_count,
+                header_mismatch_count: state.header_mismatch_count,
+                payload_mismatch_count: state.payload_mismatch_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_case_id: case_id,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_protobuf_roundtrip_probe(
+    state: ProtobufCompatibilityRuntimeState,
+    case_id: i64,
+    decode_ok: bool,
+    encode_ok: bool,
+    header_equal: bool,
+    payload_equal: bool,
+) -> ProtobufCompatibilityTransitionResult
+requires case_id > 0
+{
+    if !decode_ok {
+        ProtobufCompatibilityTransitionResult {
+            state: ProtobufCompatibilityRuntimeState {
+                case_run_count: state.case_run_count + 1,
+                case_pass_count: state.case_pass_count,
+                decode_failure_count: state.decode_failure_count + 1,
+                encode_failure_count: state.encode_failure_count,
+                header_mismatch_count: state.header_mismatch_count,
+                payload_mismatch_count: state.payload_mismatch_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_case_id: case_id,
+            },
+            applied: false,
+            reason_code: 5603,
+        }
+    } else if !encode_ok {
+        ProtobufCompatibilityTransitionResult {
+            state: ProtobufCompatibilityRuntimeState {
+                case_run_count: state.case_run_count + 1,
+                case_pass_count: state.case_pass_count,
+                decode_failure_count: state.decode_failure_count,
+                encode_failure_count: state.encode_failure_count + 1,
+                header_mismatch_count: state.header_mismatch_count,
+                payload_mismatch_count: state.payload_mismatch_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_case_id: case_id,
+            },
+            applied: false,
+            reason_code: 5604,
+        }
+    } else if !header_equal {
+        ProtobufCompatibilityTransitionResult {
+            state: ProtobufCompatibilityRuntimeState {
+                case_run_count: state.case_run_count + 1,
+                case_pass_count: state.case_pass_count,
+                decode_failure_count: state.decode_failure_count,
+                encode_failure_count: state.encode_failure_count,
+                header_mismatch_count: state.header_mismatch_count + 1,
+                payload_mismatch_count: state.payload_mismatch_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_case_id: case_id,
+            },
+            applied: false,
+            reason_code: 5605,
+        }
+    } else if !payload_equal {
+        ProtobufCompatibilityTransitionResult {
+            state: ProtobufCompatibilityRuntimeState {
+                case_run_count: state.case_run_count + 1,
+                case_pass_count: state.case_pass_count,
+                decode_failure_count: state.decode_failure_count,
+                encode_failure_count: state.encode_failure_count,
+                header_mismatch_count: state.header_mismatch_count,
+                payload_mismatch_count: state.payload_mismatch_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_case_id: case_id,
+            },
+            applied: false,
+            reason_code: 5606,
+        }
+    } else {
+        ProtobufCompatibilityTransitionResult {
+            state: ProtobufCompatibilityRuntimeState {
+                case_run_count: state.case_run_count + 1,
+                case_pass_count: state.case_pass_count + 1,
+                decode_failure_count: state.decode_failure_count,
+                encode_failure_count: state.encode_failure_count,
+                header_mismatch_count: state.header_mismatch_count,
+                payload_mismatch_count: state.payload_mismatch_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_case_id: case_id,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def is_protobuf_compatibility_pass(
+    state: ProtobufCompatibilityRuntimeState,
+    min_required_cases: i64,
+) -> bool
+requires min_required_cases >= 0
+{
+    state.case_run_count >= min_required_cases
+        && state.case_run_count > 0
+        && state.case_pass_count == state.case_run_count
+}
+
+def should_protobuf_compatibility_alert(
+    state: ProtobufCompatibilityRuntimeState,
+    max_rejected_count: i64,
+) -> bool
+requires max_rejected_count >= 0
+{
+    state.rejected_operation_count >= max_rejected_count
+}
