@@ -1,0 +1,545 @@
+def runtime_host_io_opcode_accept_tcp() -> i64
+ensures result == 1
+{
+    1
+}
+
+def runtime_host_io_opcode_read_tcp() -> i64
+ensures result == 2
+{
+    2
+}
+
+def runtime_host_io_opcode_write_tcp() -> i64
+ensures result == 3
+{
+    3
+}
+
+def runtime_host_io_opcode_recv_udp() -> i64
+ensures result == 4
+{
+    4
+}
+
+def runtime_host_io_opcode_send_udp() -> i64
+ensures result == 5
+{
+    5
+}
+
+def runtime_host_io_opcode_poll() -> i64
+ensures result == 6
+{
+    6
+}
+
+def runtime_host_io_opcode_timer_tick() -> i64
+ensures result == 7
+{
+    7
+}
+
+def is_valid_runtime_host_io_opcode(opcode: i64) -> bool
+requires opcode >= 0
+{
+    opcode >= runtime_host_io_opcode_accept_tcp() && opcode <= runtime_host_io_opcode_timer_tick()
+}
+
+def next_runtime_host_command_sequence_id(current_sequence_id: i64) -> i64
+requires current_sequence_id >= 1
+ensures result >= 1
+{
+    if current_sequence_id >= 2000000000 {
+        1
+    } else {
+        current_sequence_id + 1
+    }
+}
+
+struct RuntimeHostAdapterState {
+    host_running: bool,
+    bridge_online: bool,
+    next_sequence_id: i64,
+    inflight_command_count: i64,
+    emitted_command_count: i64,
+    ack_ok_count: i64,
+    ack_error_count: i64,
+    accepted_connection_count: i64,
+    packet_rx_count: i64,
+    packet_tx_count: i64,
+    rx_bytes: i64,
+    tx_bytes: i64,
+    poll_tick_count: i64,
+    timer_tick_count: i64,
+    rejected_operation_count: i64,
+    error_count: i64,
+    last_opcode: i64,
+    last_reason_code: i64,
+}
+
+struct RuntimeHostAdapterTransitionResult {
+    state: RuntimeHostAdapterState,
+    applied: bool,
+    reason_code: i64,
+    command_sequence_id: i64,
+}
+
+def new_runtime_host_adapter_state() -> RuntimeHostAdapterState
+{
+    RuntimeHostAdapterState {
+        host_running: false,
+        bridge_online: false,
+        next_sequence_id: 1,
+        inflight_command_count: 0,
+        emitted_command_count: 0,
+        ack_ok_count: 0,
+        ack_error_count: 0,
+        accepted_connection_count: 0,
+        packet_rx_count: 0,
+        packet_tx_count: 0,
+        rx_bytes: 0,
+        tx_bytes: 0,
+        poll_tick_count: 0,
+        timer_tick_count: 0,
+        rejected_operation_count: 0,
+        error_count: 0,
+        last_opcode: 0,
+        last_reason_code: 0,
+    }
+}
+
+def apply_runtime_host_adapter_start(
+    state: RuntimeHostAdapterState,
+    host_start_ok: bool,
+    bridge_open_ok: bool,
+) -> RuntimeHostAdapterTransitionResult
+{
+    if state.host_running {
+        RuntimeHostAdapterTransitionResult {
+            state: RuntimeHostAdapterState {
+                host_running: state.host_running,
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_command_count: state.inflight_command_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                poll_tick_count: state.poll_tick_count,
+                timer_tick_count: state.timer_tick_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                error_count: state.error_count + 1,
+                last_opcode: state.last_opcode,
+                last_reason_code: 9301,
+            },
+            applied: false,
+            reason_code: 9301,
+            command_sequence_id: 0,
+        }
+    } else if !host_start_ok || !bridge_open_ok {
+        RuntimeHostAdapterTransitionResult {
+            state: RuntimeHostAdapterState {
+                host_running: false,
+                bridge_online: false,
+                next_sequence_id: state.next_sequence_id,
+                inflight_command_count: state.inflight_command_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                poll_tick_count: state.poll_tick_count,
+                timer_tick_count: state.timer_tick_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                error_count: state.error_count + 1,
+                last_opcode: state.last_opcode,
+                last_reason_code: 9302,
+            },
+            applied: false,
+            reason_code: 9302,
+            command_sequence_id: 0,
+        }
+    } else {
+        RuntimeHostAdapterTransitionResult {
+            state: RuntimeHostAdapterState {
+                host_running: true,
+                bridge_online: true,
+                next_sequence_id: state.next_sequence_id,
+                inflight_command_count: state.inflight_command_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                poll_tick_count: state.poll_tick_count,
+                timer_tick_count: state.timer_tick_count,
+                rejected_operation_count: state.rejected_operation_count,
+                error_count: state.error_count,
+                last_opcode: state.last_opcode,
+                last_reason_code: 0,
+            },
+            applied: true,
+            reason_code: 0,
+            command_sequence_id: 0,
+        }
+    }
+}
+
+def apply_runtime_host_adapter_emit_command(
+    state: RuntimeHostAdapterState,
+    opcode: i64,
+    payload_bytes: i64,
+    max_inflight_count: i64,
+) -> RuntimeHostAdapterTransitionResult
+requires opcode >= 0 && payload_bytes >= 0 && max_inflight_count > 0
+{
+    if !state.host_running || !state.bridge_online {
+        RuntimeHostAdapterTransitionResult {
+            state: RuntimeHostAdapterState {
+                host_running: state.host_running,
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_command_count: state.inflight_command_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                poll_tick_count: state.poll_tick_count,
+                timer_tick_count: state.timer_tick_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                error_count: state.error_count + 1,
+                last_opcode: opcode,
+                last_reason_code: 9303,
+            },
+            applied: false,
+            reason_code: 9303,
+            command_sequence_id: 0,
+        }
+    } else if !is_valid_runtime_host_io_opcode(opcode) {
+        RuntimeHostAdapterTransitionResult {
+            state: RuntimeHostAdapterState {
+                host_running: state.host_running,
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_command_count: state.inflight_command_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                poll_tick_count: state.poll_tick_count,
+                timer_tick_count: state.timer_tick_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                error_count: state.error_count + 1,
+                last_opcode: opcode,
+                last_reason_code: 9304,
+            },
+            applied: false,
+            reason_code: 9304,
+            command_sequence_id: 0,
+        }
+    } else if state.inflight_command_count >= max_inflight_count {
+        RuntimeHostAdapterTransitionResult {
+            state: RuntimeHostAdapterState {
+                host_running: state.host_running,
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_command_count: state.inflight_command_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                poll_tick_count: state.poll_tick_count,
+                timer_tick_count: state.timer_tick_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                error_count: state.error_count + 1,
+                last_opcode: opcode,
+                last_reason_code: 9305,
+            },
+            applied: false,
+            reason_code: 9305,
+            command_sequence_id: 0,
+        }
+    } else {
+        let issued_sequence_id = state.next_sequence_id;
+        let next_accept_count = if opcode == runtime_host_io_opcode_accept_tcp() {
+            state.accepted_connection_count + 1
+        } else {
+            state.accepted_connection_count
+        };
+        RuntimeHostAdapterTransitionResult {
+            state: RuntimeHostAdapterState {
+                host_running: state.host_running,
+                bridge_online: state.bridge_online,
+                next_sequence_id: next_runtime_host_command_sequence_id(issued_sequence_id),
+                inflight_command_count: state.inflight_command_count + 1,
+                emitted_command_count: state.emitted_command_count + 1,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                accepted_connection_count: next_accept_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                poll_tick_count: state.poll_tick_count,
+                timer_tick_count: state.timer_tick_count,
+                rejected_operation_count: state.rejected_operation_count,
+                error_count: state.error_count,
+                last_opcode: opcode,
+                last_reason_code: 0,
+            },
+            applied: true,
+            reason_code: 0,
+            command_sequence_id: issued_sequence_id,
+        }
+    }
+}
+
+def apply_runtime_host_adapter_ack(
+    state: RuntimeHostAdapterState,
+    opcode: i64,
+    ack_ok: bool,
+    payload_bytes: i64,
+    ack_error_code: i64,
+) -> RuntimeHostAdapterTransitionResult
+requires opcode >= 0 && payload_bytes >= 0 && ack_error_code >= 0
+{
+    if !state.host_running || !state.bridge_online {
+        RuntimeHostAdapterTransitionResult {
+            state: RuntimeHostAdapterState {
+                host_running: state.host_running,
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_command_count: state.inflight_command_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                poll_tick_count: state.poll_tick_count,
+                timer_tick_count: state.timer_tick_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                error_count: state.error_count + 1,
+                last_opcode: opcode,
+                last_reason_code: 9303,
+            },
+            applied: false,
+            reason_code: 9303,
+            command_sequence_id: 0,
+        }
+    } else if state.inflight_command_count == 0 {
+        RuntimeHostAdapterTransitionResult {
+            state: RuntimeHostAdapterState {
+                host_running: state.host_running,
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_command_count: state.inflight_command_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                poll_tick_count: state.poll_tick_count,
+                timer_tick_count: state.timer_tick_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                error_count: state.error_count + 1,
+                last_opcode: opcode,
+                last_reason_code: 9306,
+            },
+            applied: false,
+            reason_code: 9306,
+            command_sequence_id: 0,
+        }
+    } else {
+        let next_rx_count = if opcode == runtime_host_io_opcode_read_tcp()
+            || opcode == runtime_host_io_opcode_recv_udp() {
+            state.packet_rx_count + 1
+        } else {
+            state.packet_rx_count
+        };
+        let next_tx_count = if opcode == runtime_host_io_opcode_write_tcp()
+            || opcode == runtime_host_io_opcode_send_udp() {
+            state.packet_tx_count + 1
+        } else {
+            state.packet_tx_count
+        };
+        let next_rx_bytes = if opcode == runtime_host_io_opcode_read_tcp()
+            || opcode == runtime_host_io_opcode_recv_udp() {
+            state.rx_bytes + payload_bytes
+        } else {
+            state.rx_bytes
+        };
+        let next_tx_bytes = if opcode == runtime_host_io_opcode_write_tcp()
+            || opcode == runtime_host_io_opcode_send_udp() {
+            state.tx_bytes + payload_bytes
+        } else {
+            state.tx_bytes
+        };
+        let next_poll = if opcode == runtime_host_io_opcode_poll() {
+            state.poll_tick_count + 1
+        } else {
+            state.poll_tick_count
+        };
+        let next_timer = if opcode == runtime_host_io_opcode_timer_tick() {
+            state.timer_tick_count + 1
+        } else {
+            state.timer_tick_count
+        };
+        if ack_ok {
+            RuntimeHostAdapterTransitionResult {
+                state: RuntimeHostAdapterState {
+                    host_running: state.host_running,
+                    bridge_online: state.bridge_online,
+                    next_sequence_id: state.next_sequence_id,
+                    inflight_command_count: state.inflight_command_count - 1,
+                    emitted_command_count: state.emitted_command_count,
+                    ack_ok_count: state.ack_ok_count + 1,
+                    ack_error_count: state.ack_error_count,
+                    accepted_connection_count: state.accepted_connection_count,
+                    packet_rx_count: next_rx_count,
+                    packet_tx_count: next_tx_count,
+                    rx_bytes: next_rx_bytes,
+                    tx_bytes: next_tx_bytes,
+                    poll_tick_count: next_poll,
+                    timer_tick_count: next_timer,
+                    rejected_operation_count: state.rejected_operation_count,
+                    error_count: state.error_count,
+                    last_opcode: opcode,
+                    last_reason_code: 0,
+                },
+                applied: true,
+                reason_code: 0,
+                command_sequence_id: 0,
+            }
+        } else {
+            RuntimeHostAdapterTransitionResult {
+                state: RuntimeHostAdapterState {
+                    host_running: state.host_running,
+                    bridge_online: state.bridge_online,
+                    next_sequence_id: state.next_sequence_id,
+                    inflight_command_count: state.inflight_command_count - 1,
+                    emitted_command_count: state.emitted_command_count,
+                    ack_ok_count: state.ack_ok_count,
+                    ack_error_count: state.ack_error_count + 1,
+                    accepted_connection_count: state.accepted_connection_count,
+                    packet_rx_count: state.packet_rx_count,
+                    packet_tx_count: state.packet_tx_count,
+                    rx_bytes: state.rx_bytes,
+                    tx_bytes: state.tx_bytes,
+                    poll_tick_count: state.poll_tick_count,
+                    timer_tick_count: state.timer_tick_count,
+                    rejected_operation_count: state.rejected_operation_count + 1,
+                    error_count: state.error_count + 1,
+                    last_opcode: opcode,
+                    last_reason_code: ack_error_code,
+                },
+                applied: false,
+                reason_code: 9307,
+                command_sequence_id: 0,
+            }
+        }
+    }
+}
+
+def apply_runtime_host_adapter_stop(state: RuntimeHostAdapterState) -> RuntimeHostAdapterTransitionResult
+{
+    if !state.host_running {
+        RuntimeHostAdapterTransitionResult {
+            state: RuntimeHostAdapterState {
+                host_running: state.host_running,
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_command_count: state.inflight_command_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                poll_tick_count: state.poll_tick_count,
+                timer_tick_count: state.timer_tick_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                error_count: state.error_count + 1,
+                last_opcode: state.last_opcode,
+                last_reason_code: 9308,
+            },
+            applied: false,
+            reason_code: 9308,
+            command_sequence_id: 0,
+        }
+    } else {
+        RuntimeHostAdapterTransitionResult {
+            state: RuntimeHostAdapterState {
+                host_running: false,
+                bridge_online: false,
+                next_sequence_id: state.next_sequence_id,
+                inflight_command_count: 0,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                accepted_connection_count: state.accepted_connection_count,
+                packet_rx_count: state.packet_rx_count,
+                packet_tx_count: state.packet_tx_count,
+                rx_bytes: state.rx_bytes,
+                tx_bytes: state.tx_bytes,
+                poll_tick_count: state.poll_tick_count,
+                timer_tick_count: state.timer_tick_count,
+                rejected_operation_count: state.rejected_operation_count,
+                error_count: state.error_count,
+                last_opcode: state.last_opcode,
+                last_reason_code: 0,
+            },
+            applied: true,
+            reason_code: 0,
+            command_sequence_id: 0,
+        }
+    }
+}
+
+def can_runtime_host_adapter_emit(
+    state: RuntimeHostAdapterState,
+    max_inflight_count: i64,
+) -> bool
+requires max_inflight_count > 0
+{
+    state.host_running && state.bridge_online && state.inflight_command_count < max_inflight_count
+}
+
+def should_runtime_host_adapter_alert(
+    state: RuntimeHostAdapterState,
+    max_error_count: i64,
+) -> bool
+requires max_error_count >= 0
+{
+    state.error_count > max_error_count || state.rejected_operation_count > 0
+}
