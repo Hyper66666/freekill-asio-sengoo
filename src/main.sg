@@ -4,6 +4,30 @@ ensures result == 9527
     9527
 }
 
+def default_udp_port() -> i64
+ensures result == 9528
+{
+    9528
+}
+
+def default_io_thread_count() -> i64
+ensures result == 4
+{
+    4
+}
+
+def default_tick_interval_ms() -> i64
+ensures result == 50
+{
+    50
+}
+
+def default_task_budget() -> i64
+ensures result == 256
+{
+    256
+}
+
 def is_valid_listen_port(port: i64) -> bool
 {
     port >= 1024 && port <= 65535
@@ -17,6 +41,39 @@ ensures result >= 1024 && result <= 65535
         candidate_port
     } else {
         random_fallback_port
+    }
+}
+
+def normalized_io_thread_count(candidate_threads: i64, fallback_threads: i64) -> i64
+requires fallback_threads > 0
+ensures result > 0
+{
+    if candidate_threads > 0 {
+        candidate_threads
+    } else {
+        fallback_threads
+    }
+}
+
+def normalized_tick_interval_ms(candidate_ms: i64, fallback_ms: i64) -> i64
+requires fallback_ms > 0
+ensures result > 0
+{
+    if candidate_ms > 0 {
+        candidate_ms
+    } else {
+        fallback_ms
+    }
+}
+
+def normalized_task_budget(candidate_budget: i64, fallback_budget: i64) -> i64
+requires fallback_budget > 0
+ensures result > 0
+{
+    if candidate_budget > 0 {
+        candidate_budget
+    } else {
+        fallback_budget
     }
 }
 
@@ -36,6 +93,658 @@ ensures result == true
     true
 }
 
+def is_known_signal(signal_code: i64) -> bool
+requires signal_code >= 0
+{
+    signal_code > 0 && signal_code <= 31
+}
+
+def should_main_stop_for_signal(signal_code: i64) -> bool
+requires signal_code >= 0
+{
+    signal_code == 2 || signal_code == 15
+}
+
+def should_main_reload_for_signal(signal_code: i64) -> bool
+requires signal_code >= 0
+{
+    signal_code == 1
+}
+
+struct MainRuntimeState {
+    parse_checked: bool,
+    parse_ok: bool,
+    show_help: bool,
+    cli_applied: bool,
+    config_checked: bool,
+    config_loaded: bool,
+    signal_handlers_registered: bool,
+    service_running: bool,
+    shutdown_requested: bool,
+    tcp_listen_port: i64,
+    udp_listen_port: i64,
+    io_thread_count: i64,
+    tick_interval_ms: i64,
+    task_budget: i64,
+    uptime_ms: i64,
+    start_count: i64,
+    stop_count: i64,
+    reload_count: i64,
+    rejected_operation_count: i64,
+    last_signal_code: i64,
+}
+
+struct MainRuntimeTransitionResult {
+    state: MainRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_main_runtime_state(default_tcp_port: i64, default_udp_port: i64) -> MainRuntimeState
+requires default_tcp_port >= 1024 && default_tcp_port <= 65535
+    && default_udp_port >= 1024 && default_udp_port <= 65535
+{
+    MainRuntimeState {
+        parse_checked: false,
+        parse_ok: false,
+        show_help: false,
+        cli_applied: false,
+        config_checked: false,
+        config_loaded: false,
+        signal_handlers_registered: false,
+        service_running: false,
+        shutdown_requested: false,
+        tcp_listen_port: default_tcp_port,
+        udp_listen_port: default_udp_port,
+        io_thread_count: default_io_thread_count(),
+        tick_interval_ms: default_tick_interval_ms(),
+        task_budget: default_task_budget(),
+        uptime_ms: 0,
+        start_count: 0,
+        stop_count: 0,
+        reload_count: 0,
+        rejected_operation_count: 0,
+        last_signal_code: 0,
+    }
+}
+
+def apply_main_parse_cli(
+    state: MainRuntimeState,
+    parse_opt_ok: bool,
+    cli_tcp_port: i64,
+    cli_udp_port: i64,
+    cli_io_thread_count: i64,
+    show_help: bool,
+) -> MainRuntimeTransitionResult
+{
+    if state.service_running {
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: state.service_running,
+                shutdown_requested: state.shutdown_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count,
+                stop_count: state.stop_count,
+                reload_count: state.reload_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_signal_code: state.last_signal_code,
+            },
+            applied: false,
+            reason_code: 9001,
+        }
+    } else {
+        let normalized_tcp = normalized_listen_port(cli_tcp_port, state.tcp_listen_port);
+        let normalized_udp = normalized_listen_port(cli_udp_port, state.udp_listen_port);
+        let normalized_threads = normalized_io_thread_count(cli_io_thread_count, state.io_thread_count);
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: true,
+                parse_ok: parse_opt_ok,
+                show_help: show_help,
+                cli_applied: parse_opt_ok,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: state.service_running,
+                shutdown_requested: state.shutdown_requested,
+                tcp_listen_port: normalized_tcp,
+                udp_listen_port: normalized_udp,
+                io_thread_count: normalized_threads,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count,
+                stop_count: state.stop_count,
+                reload_count: state.reload_count,
+                rejected_operation_count: if parse_opt_ok {
+                    state.rejected_operation_count
+                } else {
+                    state.rejected_operation_count + 1
+                },
+                last_signal_code: state.last_signal_code,
+            },
+            applied: parse_opt_ok,
+            reason_code: if parse_opt_ok { 0 } else { 9002 },
+        }
+    }
+}
+
+def apply_main_load_config(
+    state: MainRuntimeState,
+    config_available: bool,
+    config_tcp_port: i64,
+    config_udp_port: i64,
+    config_io_thread_count: i64,
+    config_tick_interval_ms: i64,
+    config_task_budget: i64,
+) -> MainRuntimeTransitionResult
+{
+    if !state.parse_checked || !state.parse_ok {
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: state.service_running,
+                shutdown_requested: state.shutdown_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count,
+                stop_count: state.stop_count,
+                reload_count: state.reload_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_signal_code: state.last_signal_code,
+            },
+            applied: false,
+            reason_code: 9003,
+        }
+    } else {
+        let next_tcp = if config_available {
+            normalized_listen_port(config_tcp_port, state.tcp_listen_port)
+        } else {
+            state.tcp_listen_port
+        };
+        let next_udp = if config_available {
+            normalized_listen_port(config_udp_port, state.udp_listen_port)
+        } else {
+            state.udp_listen_port
+        };
+        let next_threads = if config_available {
+            normalized_io_thread_count(config_io_thread_count, state.io_thread_count)
+        } else {
+            state.io_thread_count
+        };
+        let next_tick = if config_available {
+            normalized_tick_interval_ms(config_tick_interval_ms, state.tick_interval_ms)
+        } else {
+            state.tick_interval_ms
+        };
+        let next_budget = if config_available {
+            normalized_task_budget(config_task_budget, state.task_budget)
+        } else {
+            state.task_budget
+        };
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: true,
+                config_loaded: config_available,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: state.service_running,
+                shutdown_requested: state.shutdown_requested,
+                tcp_listen_port: next_tcp,
+                udp_listen_port: next_udp,
+                io_thread_count: next_threads,
+                tick_interval_ms: next_tick,
+                task_budget: next_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count,
+                stop_count: state.stop_count,
+                reload_count: state.reload_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_signal_code: state.last_signal_code,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_main_register_signal_handlers(
+    state: MainRuntimeState,
+    can_register: bool,
+) -> MainRuntimeTransitionResult
+{
+    if !state.parse_ok {
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: state.service_running,
+                shutdown_requested: state.shutdown_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count,
+                stop_count: state.stop_count,
+                reload_count: state.reload_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_signal_code: state.last_signal_code,
+            },
+            applied: false,
+            reason_code: 9004,
+        }
+    } else if !can_register {
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: state.service_running,
+                shutdown_requested: state.shutdown_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count,
+                stop_count: state.stop_count,
+                reload_count: state.reload_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_signal_code: state.last_signal_code,
+            },
+            applied: false,
+            reason_code: 9005,
+        }
+    } else {
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: true,
+                service_running: state.service_running,
+                shutdown_requested: state.shutdown_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count,
+                stop_count: state.stop_count,
+                reload_count: state.reload_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_signal_code: state.last_signal_code,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def can_main_start_service(state: MainRuntimeState) -> bool
+{
+    state.parse_ok
+        && !state.show_help
+        && state.signal_handlers_registered
+        && !state.service_running
+}
+
+def apply_main_start_service(state: MainRuntimeState) -> MainRuntimeTransitionResult
+{
+    if !can_main_start_service(state) {
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: state.service_running,
+                shutdown_requested: state.shutdown_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count,
+                stop_count: state.stop_count,
+                reload_count: state.reload_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_signal_code: state.last_signal_code,
+            },
+            applied: false,
+            reason_code: 9006,
+        }
+    } else {
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: true,
+                shutdown_requested: false,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count + 1,
+                stop_count: state.stop_count,
+                reload_count: state.reload_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_signal_code: state.last_signal_code,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_main_runtime_tick(
+    state: MainRuntimeState,
+    elapsed_ms: i64,
+) -> MainRuntimeTransitionResult
+requires elapsed_ms >= 0
+{
+    if !state.service_running {
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: state.service_running,
+                shutdown_requested: state.shutdown_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count,
+                stop_count: state.stop_count,
+                reload_count: state.reload_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_signal_code: state.last_signal_code,
+            },
+            applied: false,
+            reason_code: 9007,
+        }
+    } else {
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: state.service_running,
+                shutdown_requested: state.shutdown_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms + elapsed_ms,
+                start_count: state.start_count,
+                stop_count: state.stop_count,
+                reload_count: state.reload_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_signal_code: state.last_signal_code,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_main_receive_signal(
+    state: MainRuntimeState,
+    signal_code: i64,
+) -> MainRuntimeTransitionResult
+requires signal_code >= 0
+{
+    if !state.signal_handlers_registered {
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: state.service_running,
+                shutdown_requested: state.shutdown_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count,
+                stop_count: state.stop_count,
+                reload_count: state.reload_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_signal_code: state.last_signal_code,
+            },
+            applied: false,
+            reason_code: 9008,
+        }
+    } else if !is_known_signal(signal_code) {
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: state.service_running,
+                shutdown_requested: state.shutdown_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count,
+                stop_count: state.stop_count,
+                reload_count: state.reload_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_signal_code: signal_code,
+            },
+            applied: false,
+            reason_code: 9009,
+        }
+    } else {
+        let next_reload_count = if should_main_reload_for_signal(signal_code) {
+            state.reload_count + 1
+        } else {
+            state.reload_count
+        };
+        let stop_now = should_main_stop_for_signal(signal_code);
+        let next_stop_count = if stop_now && state.service_running {
+            state.stop_count + 1
+        } else {
+            state.stop_count
+        };
+        let next_service_running = if stop_now {
+            false
+        } else {
+            state.service_running
+        };
+        let next_shutdown_requested = if stop_now {
+            true
+        } else {
+            state.shutdown_requested
+        };
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: next_service_running,
+                shutdown_requested: next_shutdown_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count,
+                stop_count: next_stop_count,
+                reload_count: next_reload_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_signal_code: signal_code,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_main_stop_service(
+    state: MainRuntimeState,
+    force_stop: bool,
+) -> MainRuntimeTransitionResult
+{
+    if !state.service_running && !force_stop {
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: state.service_running,
+                shutdown_requested: state.shutdown_requested,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count,
+                stop_count: state.stop_count,
+                reload_count: state.reload_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_signal_code: state.last_signal_code,
+            },
+            applied: false,
+            reason_code: 9010,
+        }
+    } else {
+        MainRuntimeTransitionResult {
+            state: MainRuntimeState {
+                parse_checked: state.parse_checked,
+                parse_ok: state.parse_ok,
+                show_help: state.show_help,
+                cli_applied: state.cli_applied,
+                config_checked: state.config_checked,
+                config_loaded: state.config_loaded,
+                signal_handlers_registered: state.signal_handlers_registered,
+                service_running: false,
+                shutdown_requested: true,
+                tcp_listen_port: state.tcp_listen_port,
+                udp_listen_port: state.udp_listen_port,
+                io_thread_count: state.io_thread_count,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                uptime_ms: state.uptime_ms,
+                start_count: state.start_count,
+                stop_count: if state.service_running {
+                    state.stop_count + 1
+                } else {
+                    state.stop_count
+                },
+                reload_count: state.reload_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_signal_code: state.last_signal_code,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_main_finalize_exit(state: MainRuntimeState) -> i64
+ensures result >= 0
+{
+    if !state.parse_ok {
+        2
+    } else if state.show_help {
+        0
+    } else if state.service_running {
+        1
+    } else if state.rejected_operation_count > 0 && state.start_count == 0 {
+        3
+    } else {
+        0
+    }
+}
+
 def milestone_phase() -> i64
 ensures result == 1
 {
@@ -45,5 +754,28 @@ ensures result == 1
 def main() -> i64
 ensures result >= 0
 {
-    0
+    let initial_state = new_main_runtime_state(default_server_port(), default_udp_port());
+    let parsed = apply_main_parse_cli(
+        initial_state,
+        true,
+        default_server_port(),
+        default_udp_port(),
+        default_io_thread_count(),
+        false,
+    );
+    if should_exit_after_parse_option(parsed.state.parse_ok) {
+        apply_main_finalize_exit(parsed.state)
+    } else {
+        let config_loaded = apply_main_load_config(parsed.state, false, 0, 0, 0, 0, 0);
+        let signal_ready = apply_main_register_signal_handlers(config_loaded.state, true);
+        let started = apply_main_start_service(signal_ready.state);
+        if !started.applied {
+            apply_main_finalize_exit(started.state)
+        } else {
+            let ticked = apply_main_runtime_tick(started.state, 1000);
+            let signaled = apply_main_receive_signal(ticked.state, 15);
+            let stopped = apply_main_stop_service(signaled.state, true);
+            apply_main_finalize_exit(stopped.state)
+        }
+    }
 }
