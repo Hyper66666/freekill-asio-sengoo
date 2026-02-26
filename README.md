@@ -32,13 +32,31 @@
 - `src/codec_sg/`：协议常量、packet wire、packet codec
 - `src/ffi_bridge_sg/`：C wrapper、RPC bridge、Lua FFI bridge
 - `src/server_sg/`：服务编排、runtime host、sqlite store
-- `scripts/runtime_host_acceptance.ps1`：核心验收脚本
+- `scripts/runtime_host_acceptance.ps1`：核心验收脚本（可选包含 soak）
+- `scripts/runtime_host_server.py`：可部署 runtime-host 进程
+- `scripts/start_runtime_host.ps1`：启动封装（支持 `--config-json`）
+- `scripts/runtime_host.config.example.json`：配置模板
 
-## 本地验证
+## 启动方式
+
+### 命令行直启
+
+```powershell
+python scripts/runtime_host_server.py --host 0.0.0.0 --tcp-port 9527 --db-path .tmp/runtime_host/runtime.sqlite
+```
+
+### 配置文件启动
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_runtime_host.ps1 -ConfigJsonPath scripts/runtime_host.config.example.json
+```
+
+## 本地验证与验收
 
 ```powershell
 sgc check src/main.sg
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_acceptance.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_acceptance.ps1 -IncludeSoak -SoakDurationSeconds 60
 ```
 
 验收通过标志：
