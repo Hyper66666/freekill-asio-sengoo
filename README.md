@@ -44,7 +44,3 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_accepta
 验收通过标志：
 - `Type check passed`（目标文件全部通过）
 - `ACCEPTANCE_OK=True`
-
-## 说明
-- 当前仓库公开历史仅保留核心实现代码与必要脚本。
-- 文档资产、OpenSpec 资产与测试资产不在当前发布历史中。
