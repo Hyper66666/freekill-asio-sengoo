@@ -932,6 +932,241 @@ def apply_main_host_bridge_stop(state: MainRuntimeHostBridgeState) -> MainRuntim
     }
 }
 
+struct MainRuntimeP1BridgeState {
+    running: bool,
+    codec_ready: bool,
+    lua_ffi_ready: bool,
+    sqlite_ready: bool,
+    codec_frame_count: i64,
+    lua_call_count: i64,
+    db_query_count: i64,
+    db_write_count: i64,
+    db_commit_count: i64,
+    error_count: i64,
+    rejected_operation_count: i64,
+}
+
+struct MainRuntimeP1BridgeTransitionResult {
+    state: MainRuntimeP1BridgeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_main_runtime_p1_bridge_state() -> MainRuntimeP1BridgeState
+{
+    MainRuntimeP1BridgeState {
+        running: false,
+        codec_ready: false,
+        lua_ffi_ready: false,
+        sqlite_ready: false,
+        codec_frame_count: 0,
+        lua_call_count: 0,
+        db_query_count: 0,
+        db_write_count: 0,
+        db_commit_count: 0,
+        error_count: 0,
+        rejected_operation_count: 0,
+    }
+}
+
+def apply_main_p1_bridge_start(
+    state: MainRuntimeP1BridgeState,
+    codec_ready: bool,
+    lua_ffi_ready: bool,
+    sqlite_ready: bool,
+) -> MainRuntimeP1BridgeTransitionResult
+{
+    if state.running {
+        MainRuntimeP1BridgeTransitionResult {
+            state: MainRuntimeP1BridgeState {
+                running: state.running,
+                codec_ready: state.codec_ready,
+                lua_ffi_ready: state.lua_ffi_ready,
+                sqlite_ready: state.sqlite_ready,
+                codec_frame_count: state.codec_frame_count,
+                lua_call_count: state.lua_call_count,
+                db_query_count: state.db_query_count,
+                db_write_count: state.db_write_count,
+                db_commit_count: state.db_commit_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9061,
+        }
+    } else if !codec_ready || !lua_ffi_ready || !sqlite_ready {
+        MainRuntimeP1BridgeTransitionResult {
+            state: MainRuntimeP1BridgeState {
+                running: false,
+                codec_ready: codec_ready,
+                lua_ffi_ready: lua_ffi_ready,
+                sqlite_ready: sqlite_ready,
+                codec_frame_count: state.codec_frame_count,
+                lua_call_count: state.lua_call_count,
+                db_query_count: state.db_query_count,
+                db_write_count: state.db_write_count,
+                db_commit_count: state.db_commit_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9062,
+        }
+    } else {
+        MainRuntimeP1BridgeTransitionResult {
+            state: MainRuntimeP1BridgeState {
+                running: true,
+                codec_ready: true,
+                lua_ffi_ready: true,
+                sqlite_ready: true,
+                codec_frame_count: state.codec_frame_count,
+                lua_call_count: state.lua_call_count,
+                db_query_count: state.db_query_count,
+                db_write_count: state.db_write_count,
+                db_commit_count: state.db_commit_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_main_p1_bridge_demo_flow(
+    state: MainRuntimeP1BridgeState,
+    frame_bytes: i64,
+    lua_call_ok: bool,
+    query_rows: i64,
+    write_rows: i64,
+    commit_ok: bool,
+) -> MainRuntimeP1BridgeTransitionResult
+requires frame_bytes >= 0 && query_rows >= 0 && write_rows >= 0
+{
+    if !state.running {
+        MainRuntimeP1BridgeTransitionResult {
+            state: MainRuntimeP1BridgeState {
+                running: state.running,
+                codec_ready: state.codec_ready,
+                lua_ffi_ready: state.lua_ffi_ready,
+                sqlite_ready: state.sqlite_ready,
+                codec_frame_count: state.codec_frame_count,
+                lua_call_count: state.lua_call_count,
+                db_query_count: state.db_query_count,
+                db_write_count: state.db_write_count,
+                db_commit_count: state.db_commit_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9063,
+        }
+    } else if frame_bytes == 0 {
+        MainRuntimeP1BridgeTransitionResult {
+            state: MainRuntimeP1BridgeState {
+                running: state.running,
+                codec_ready: state.codec_ready,
+                lua_ffi_ready: state.lua_ffi_ready,
+                sqlite_ready: state.sqlite_ready,
+                codec_frame_count: state.codec_frame_count,
+                lua_call_count: state.lua_call_count,
+                db_query_count: state.db_query_count,
+                db_write_count: state.db_write_count,
+                db_commit_count: state.db_commit_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9064,
+        }
+    } else if !lua_call_ok || !commit_ok {
+        MainRuntimeP1BridgeTransitionResult {
+            state: MainRuntimeP1BridgeState {
+                running: state.running,
+                codec_ready: state.codec_ready,
+                lua_ffi_ready: state.lua_ffi_ready,
+                sqlite_ready: state.sqlite_ready,
+                codec_frame_count: state.codec_frame_count + 1,
+                lua_call_count: if lua_call_ok { state.lua_call_count + 1 } else { state.lua_call_count },
+                db_query_count: state.db_query_count + 1,
+                db_write_count: if write_rows > 0 { state.db_write_count + 1 } else { state.db_write_count },
+                db_commit_count: state.db_commit_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9065,
+        }
+    } else {
+        MainRuntimeP1BridgeTransitionResult {
+            state: MainRuntimeP1BridgeState {
+                running: state.running,
+                codec_ready: state.codec_ready,
+                lua_ffi_ready: state.lua_ffi_ready,
+                sqlite_ready: state.sqlite_ready,
+                codec_frame_count: state.codec_frame_count + 1,
+                lua_call_count: state.lua_call_count + 1,
+                db_query_count: if query_rows > 0 {
+                    state.db_query_count + 1
+                } else {
+                    state.db_query_count
+                },
+                db_write_count: if write_rows > 0 {
+                    state.db_write_count + 1
+                } else {
+                    state.db_write_count
+                },
+                db_commit_count: state.db_commit_count + 1,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_main_p1_bridge_stop(state: MainRuntimeP1BridgeState) -> MainRuntimeP1BridgeTransitionResult
+{
+    if !state.running {
+        MainRuntimeP1BridgeTransitionResult {
+            state: MainRuntimeP1BridgeState {
+                running: state.running,
+                codec_ready: state.codec_ready,
+                lua_ffi_ready: state.lua_ffi_ready,
+                sqlite_ready: state.sqlite_ready,
+                codec_frame_count: state.codec_frame_count,
+                lua_call_count: state.lua_call_count,
+                db_query_count: state.db_query_count,
+                db_write_count: state.db_write_count,
+                db_commit_count: state.db_commit_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 9066,
+        }
+    } else {
+        MainRuntimeP1BridgeTransitionResult {
+            state: MainRuntimeP1BridgeState {
+                running: false,
+                codec_ready: state.codec_ready,
+                lua_ffi_ready: state.lua_ffi_ready,
+                sqlite_ready: state.sqlite_ready,
+                codec_frame_count: state.codec_frame_count,
+                lua_call_count: state.lua_call_count,
+                db_query_count: state.db_query_count,
+                db_write_count: state.db_write_count,
+                db_commit_count: state.db_commit_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
 def apply_main_finalize_exit_with_host(
     state: MainRuntimeState,
     host_state: MainRuntimeHostBridgeState,
@@ -945,6 +1180,25 @@ ensures result >= 0
         5
     } else if host_state.error_count > 0 && host_state.protobuf_pass_count == 0 {
         4
+    } else {
+        0
+    }
+}
+
+def apply_main_finalize_exit_with_stack(
+    state: MainRuntimeState,
+    host_state: MainRuntimeHostBridgeState,
+    p1_state: MainRuntimeP1BridgeState,
+) -> i64
+ensures result >= 0
+{
+    let base = apply_main_finalize_exit_with_host(state, host_state);
+    if base != 0 {
+        base
+    } else if p1_state.running {
+        6
+    } else if p1_state.error_count > 0 && p1_state.db_commit_count == 0 {
+        7
     } else {
         0
     }
@@ -979,17 +1233,28 @@ ensures result >= 0
         } else {
             let host0 = new_main_runtime_host_bridge_state();
             let host1 = apply_main_host_bridge_start(host0);
+            let p10 = new_main_runtime_p1_bridge_state();
+            let p11 = apply_main_p1_bridge_start(p10, true, true, true);
             let host2 = apply_main_host_bridge_demo_flow(
                 host1.state,
                 90001,
                 started.state.io_thread_count,
                 -1,
             );
+            let p12 = apply_main_p1_bridge_demo_flow(
+                p11.state,
+                256,
+                true,
+                1,
+                1,
+                true,
+            );
             let ticked = apply_main_runtime_tick(started.state, 1000);
             let signaled = apply_main_receive_signal(ticked.state, 15);
             let stopped = apply_main_stop_service(signaled.state, true);
             let host3 = apply_main_host_bridge_stop(host2.state);
-            apply_main_finalize_exit_with_host(stopped.state, host3.state)
+            let p13 = apply_main_p1_bridge_stop(p12.state);
+            apply_main_finalize_exit_with_stack(stopped.state, host3.state, p13.state)
         }
     }
 }

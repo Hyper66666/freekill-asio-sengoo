@@ -1,0 +1,866 @@
+def codec_format_json() -> i64
+ensures result == 1
+{
+    1
+}
+
+def codec_format_protobuf() -> i64
+ensures result == 2
+{
+    2
+}
+
+def packet_frame_header_bytes() -> i64
+ensures result == 12
+{
+    12
+}
+
+def max_packet_command_bytes() -> i64
+ensures result == 2048
+{
+    2048
+}
+
+def max_packet_payload_bytes() -> i64
+ensures result == 65536
+{
+    65536
+}
+
+def is_valid_codec_format(format_code: i64) -> bool
+requires format_code >= 0
+{
+    format_code == codec_format_json() || format_code == codec_format_protobuf()
+}
+
+def is_valid_packet_version(version_code: i64) -> bool
+requires version_code >= 0
+{
+    version_code == 1
+}
+
+def can_encode_packet_payload(payload_bytes: i64) -> bool
+requires payload_bytes >= 0
+{
+    payload_bytes > 0 && payload_bytes <= max_packet_payload_bytes()
+}
+
+def estimate_json_payload_bytes(
+    method_bytes: i64,
+    params_bytes: i64,
+    include_id: bool,
+    include_error: bool,
+) -> i64
+requires method_bytes >= 0 && params_bytes >= 0
+ensures result >= 0
+{
+    let id_overhead = if include_id { 24 } else { 0 };
+    let error_overhead = if include_error { 18 } else { 0 };
+    method_bytes + params_bytes + 32 + id_overhead + error_overhead
+}
+
+def estimate_protobuf_payload_bytes(
+    field_count: i64,
+    payload_bytes: i64,
+    has_varint_field: bool,
+    has_length_delimited_field: bool,
+) -> i64
+requires field_count >= 0 && payload_bytes >= 0
+ensures result >= 0
+{
+    let varint_overhead = if has_varint_field { 2 } else { 0 };
+    let length_overhead = if has_length_delimited_field { 4 } else { 0 };
+    payload_bytes + field_count * 2 + varint_overhead + length_overhead
+}
+
+def compute_frame_total_bytes(command_bytes: i64, payload_bytes: i64) -> i64
+requires command_bytes >= 0 && payload_bytes >= 0
+ensures result >= 0
+{
+    packet_frame_header_bytes() + command_bytes + payload_bytes
+}
+
+def is_valid_packet_header(
+    version_code: i64,
+    format_code: i64,
+    command_bytes: i64,
+    payload_bytes: i64,
+) -> bool
+requires command_bytes >= 0 && payload_bytes >= 0
+{
+    is_valid_packet_version(version_code)
+        && is_valid_codec_format(format_code)
+        && command_bytes <= max_packet_command_bytes()
+        && payload_bytes <= max_packet_payload_bytes()
+}
+
+struct PacketCodecRuntimeState {
+    initialized: bool,
+    encoder_ready: bool,
+    decoder_ready: bool,
+    json_encode_count: i64,
+    json_decode_count: i64,
+    protobuf_encode_count: i64,
+    protobuf_decode_count: i64,
+    frame_build_count: i64,
+    frame_parse_count: i64,
+    encode_error_count: i64,
+    decode_error_count: i64,
+    parse_error_count: i64,
+    rejected_operation_count: i64,
+    last_format_code: i64,
+    last_reason_code: i64,
+    last_frame_bytes: i64,
+}
+
+struct PacketCodecTransitionResult {
+    state: PacketCodecRuntimeState,
+    applied: bool,
+    reason_code: i64,
+    emitted_bytes: i64,
+}
+
+def new_packet_codec_runtime_state() -> PacketCodecRuntimeState
+{
+    PacketCodecRuntimeState {
+        initialized: false,
+        encoder_ready: false,
+        decoder_ready: false,
+        json_encode_count: 0,
+        json_decode_count: 0,
+        protobuf_encode_count: 0,
+        protobuf_decode_count: 0,
+        frame_build_count: 0,
+        frame_parse_count: 0,
+        encode_error_count: 0,
+        decode_error_count: 0,
+        parse_error_count: 0,
+        rejected_operation_count: 0,
+        last_format_code: 0,
+        last_reason_code: 0,
+        last_frame_bytes: 0,
+    }
+}
+
+def apply_packet_codec_initialize(
+    state: PacketCodecRuntimeState,
+    encoder_ready: bool,
+    decoder_ready: bool,
+) -> PacketCodecTransitionResult
+{
+    if state.initialized {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count,
+                decode_error_count: state.decode_error_count,
+                parse_error_count: state.parse_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: state.last_format_code,
+                last_reason_code: 5401,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5401,
+            emitted_bytes: 0,
+        }
+    } else if !encoder_ready || !decoder_ready {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: false,
+                encoder_ready: false,
+                decoder_ready: false,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count + 1,
+                decode_error_count: state.decode_error_count + 1,
+                parse_error_count: state.parse_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: state.last_format_code,
+                last_reason_code: 5402,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5402,
+            emitted_bytes: 0,
+        }
+    } else {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: true,
+                encoder_ready: true,
+                decoder_ready: true,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count,
+                decode_error_count: state.decode_error_count,
+                parse_error_count: state.parse_error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_format_code: state.last_format_code,
+                last_reason_code: 0,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: true,
+            reason_code: 0,
+            emitted_bytes: 0,
+        }
+    }
+}
+
+def apply_packet_codec_encode_json(
+    state: PacketCodecRuntimeState,
+    method_bytes: i64,
+    params_bytes: i64,
+    include_id: bool,
+    include_error: bool,
+    json_utf8_ok: bool,
+) -> PacketCodecTransitionResult
+requires method_bytes >= 0 && params_bytes >= 0
+{
+    if !state.initialized || !state.encoder_ready {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count + 1,
+                decode_error_count: state.decode_error_count,
+                parse_error_count: state.parse_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: codec_format_json(),
+                last_reason_code: 5403,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5403,
+            emitted_bytes: 0,
+        }
+    } else {
+        let payload_bytes = estimate_json_payload_bytes(method_bytes, params_bytes, include_id, include_error);
+        if !json_utf8_ok || !can_encode_packet_payload(payload_bytes) {
+            PacketCodecTransitionResult {
+                state: PacketCodecRuntimeState {
+                    initialized: state.initialized,
+                    encoder_ready: state.encoder_ready,
+                    decoder_ready: state.decoder_ready,
+                    json_encode_count: state.json_encode_count,
+                    json_decode_count: state.json_decode_count,
+                    protobuf_encode_count: state.protobuf_encode_count,
+                    protobuf_decode_count: state.protobuf_decode_count,
+                    frame_build_count: state.frame_build_count,
+                    frame_parse_count: state.frame_parse_count,
+                    encode_error_count: state.encode_error_count + 1,
+                    decode_error_count: state.decode_error_count,
+                    parse_error_count: state.parse_error_count,
+                    rejected_operation_count: state.rejected_operation_count + 1,
+                    last_format_code: codec_format_json(),
+                    last_reason_code: 5404,
+                    last_frame_bytes: state.last_frame_bytes,
+                },
+                applied: false,
+                reason_code: 5404,
+                emitted_bytes: payload_bytes,
+            }
+        } else {
+            PacketCodecTransitionResult {
+                state: PacketCodecRuntimeState {
+                    initialized: state.initialized,
+                    encoder_ready: state.encoder_ready,
+                    decoder_ready: state.decoder_ready,
+                    json_encode_count: state.json_encode_count + 1,
+                    json_decode_count: state.json_decode_count,
+                    protobuf_encode_count: state.protobuf_encode_count,
+                    protobuf_decode_count: state.protobuf_decode_count,
+                    frame_build_count: state.frame_build_count,
+                    frame_parse_count: state.frame_parse_count,
+                    encode_error_count: state.encode_error_count,
+                    decode_error_count: state.decode_error_count,
+                    parse_error_count: state.parse_error_count,
+                    rejected_operation_count: state.rejected_operation_count,
+                    last_format_code: codec_format_json(),
+                    last_reason_code: 0,
+                    last_frame_bytes: payload_bytes,
+                },
+                applied: true,
+                reason_code: 0,
+                emitted_bytes: payload_bytes,
+            }
+        }
+    }
+}
+
+def apply_packet_codec_decode_json(
+    state: PacketCodecRuntimeState,
+    payload_bytes: i64,
+    has_method: bool,
+    has_params: bool,
+    has_valid_braces: bool,
+    json_utf8_ok: bool,
+) -> PacketCodecTransitionResult
+requires payload_bytes >= 0
+{
+    if !state.initialized || !state.decoder_ready {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count,
+                decode_error_count: state.decode_error_count + 1,
+                parse_error_count: state.parse_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: codec_format_json(),
+                last_reason_code: 5405,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5405,
+            emitted_bytes: 0,
+        }
+    } else if payload_bytes == 0 || payload_bytes > max_packet_payload_bytes() {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count,
+                decode_error_count: state.decode_error_count + 1,
+                parse_error_count: state.parse_error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: codec_format_json(),
+                last_reason_code: 5406,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5406,
+            emitted_bytes: 0,
+        }
+    } else if !json_utf8_ok || !has_valid_braces || !has_method || !has_params {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count,
+                decode_error_count: state.decode_error_count + 1,
+                parse_error_count: state.parse_error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: codec_format_json(),
+                last_reason_code: 5407,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5407,
+            emitted_bytes: 0,
+        }
+    } else {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count + 1,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count,
+                decode_error_count: state.decode_error_count,
+                parse_error_count: state.parse_error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_format_code: codec_format_json(),
+                last_reason_code: 0,
+                last_frame_bytes: payload_bytes,
+            },
+            applied: true,
+            reason_code: 0,
+            emitted_bytes: payload_bytes,
+        }
+    }
+}
+
+def apply_packet_codec_encode_protobuf(
+    state: PacketCodecRuntimeState,
+    field_count: i64,
+    payload_bytes: i64,
+    schema_exists: bool,
+    has_varint_field: bool,
+    has_length_delimited_field: bool,
+) -> PacketCodecTransitionResult
+requires field_count >= 0 && payload_bytes >= 0
+{
+    if !state.initialized || !state.encoder_ready {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count + 1,
+                decode_error_count: state.decode_error_count,
+                parse_error_count: state.parse_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: codec_format_protobuf(),
+                last_reason_code: 5408,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5408,
+            emitted_bytes: 0,
+        }
+    } else if !schema_exists {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count + 1,
+                decode_error_count: state.decode_error_count,
+                parse_error_count: state.parse_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: codec_format_protobuf(),
+                last_reason_code: 5409,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5409,
+            emitted_bytes: 0,
+        }
+    } else {
+        let encoded_bytes = estimate_protobuf_payload_bytes(
+            field_count,
+            payload_bytes,
+            has_varint_field,
+            has_length_delimited_field,
+        );
+        if !can_encode_packet_payload(encoded_bytes) {
+            PacketCodecTransitionResult {
+                state: PacketCodecRuntimeState {
+                    initialized: state.initialized,
+                    encoder_ready: state.encoder_ready,
+                    decoder_ready: state.decoder_ready,
+                    json_encode_count: state.json_encode_count,
+                    json_decode_count: state.json_decode_count,
+                    protobuf_encode_count: state.protobuf_encode_count,
+                    protobuf_decode_count: state.protobuf_decode_count,
+                    frame_build_count: state.frame_build_count,
+                    frame_parse_count: state.frame_parse_count,
+                    encode_error_count: state.encode_error_count + 1,
+                    decode_error_count: state.decode_error_count,
+                    parse_error_count: state.parse_error_count,
+                    rejected_operation_count: state.rejected_operation_count + 1,
+                    last_format_code: codec_format_protobuf(),
+                    last_reason_code: 5410,
+                    last_frame_bytes: state.last_frame_bytes,
+                },
+                applied: false,
+                reason_code: 5410,
+                emitted_bytes: encoded_bytes,
+            }
+        } else {
+            PacketCodecTransitionResult {
+                state: PacketCodecRuntimeState {
+                    initialized: state.initialized,
+                    encoder_ready: state.encoder_ready,
+                    decoder_ready: state.decoder_ready,
+                    json_encode_count: state.json_encode_count,
+                    json_decode_count: state.json_decode_count,
+                    protobuf_encode_count: state.protobuf_encode_count + 1,
+                    protobuf_decode_count: state.protobuf_decode_count,
+                    frame_build_count: state.frame_build_count,
+                    frame_parse_count: state.frame_parse_count,
+                    encode_error_count: state.encode_error_count,
+                    decode_error_count: state.decode_error_count,
+                    parse_error_count: state.parse_error_count,
+                    rejected_operation_count: state.rejected_operation_count,
+                    last_format_code: codec_format_protobuf(),
+                    last_reason_code: 0,
+                    last_frame_bytes: encoded_bytes,
+                },
+                applied: true,
+                reason_code: 0,
+                emitted_bytes: encoded_bytes,
+            }
+        }
+    }
+}
+
+def apply_packet_codec_decode_protobuf(
+    state: PacketCodecRuntimeState,
+    payload_bytes: i64,
+    schema_exists: bool,
+    decode_ok: bool,
+) -> PacketCodecTransitionResult
+requires payload_bytes >= 0
+{
+    if !state.initialized || !state.decoder_ready {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count,
+                decode_error_count: state.decode_error_count + 1,
+                parse_error_count: state.parse_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: codec_format_protobuf(),
+                last_reason_code: 5411,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5411,
+            emitted_bytes: 0,
+        }
+    } else if !schema_exists || payload_bytes == 0 || payload_bytes > max_packet_payload_bytes() {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count,
+                decode_error_count: state.decode_error_count + 1,
+                parse_error_count: state.parse_error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: codec_format_protobuf(),
+                last_reason_code: 5412,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5412,
+            emitted_bytes: 0,
+        }
+    } else if !decode_ok {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count,
+                decode_error_count: state.decode_error_count + 1,
+                parse_error_count: state.parse_error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: codec_format_protobuf(),
+                last_reason_code: 5413,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5413,
+            emitted_bytes: 0,
+        }
+    } else {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count + 1,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count,
+                decode_error_count: state.decode_error_count,
+                parse_error_count: state.parse_error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_format_code: codec_format_protobuf(),
+                last_reason_code: 0,
+                last_frame_bytes: payload_bytes,
+            },
+            applied: true,
+            reason_code: 0,
+            emitted_bytes: payload_bytes,
+        }
+    }
+}
+
+def apply_packet_codec_build_frame(
+    state: PacketCodecRuntimeState,
+    version_code: i64,
+    format_code: i64,
+    command_bytes: i64,
+    payload_bytes: i64,
+) -> PacketCodecTransitionResult
+requires version_code >= 0 && format_code >= 0 && command_bytes >= 0 && payload_bytes >= 0
+{
+    if !state.initialized || !state.encoder_ready {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count + 1,
+                decode_error_count: state.decode_error_count,
+                parse_error_count: state.parse_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: format_code,
+                last_reason_code: 5414,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5414,
+            emitted_bytes: 0,
+        }
+    } else if !is_valid_packet_header(version_code, format_code, command_bytes, payload_bytes) {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count + 1,
+                decode_error_count: state.decode_error_count,
+                parse_error_count: state.parse_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: format_code,
+                last_reason_code: 5415,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5415,
+            emitted_bytes: 0,
+        }
+    } else {
+        let total_bytes = compute_frame_total_bytes(command_bytes, payload_bytes);
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count + 1,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count,
+                decode_error_count: state.decode_error_count,
+                parse_error_count: state.parse_error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_format_code: format_code,
+                last_reason_code: 0,
+                last_frame_bytes: total_bytes,
+            },
+            applied: true,
+            reason_code: 0,
+            emitted_bytes: total_bytes,
+        }
+    }
+}
+
+def apply_packet_codec_parse_frame(
+    state: PacketCodecRuntimeState,
+    version_code: i64,
+    format_code: i64,
+    command_bytes: i64,
+    payload_bytes: i64,
+    frame_bytes_integrity_ok: bool,
+) -> PacketCodecTransitionResult
+requires version_code >= 0 && format_code >= 0 && command_bytes >= 0 && payload_bytes >= 0
+{
+    if !state.initialized || !state.decoder_ready {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count,
+                decode_error_count: state.decode_error_count + 1,
+                parse_error_count: state.parse_error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: format_code,
+                last_reason_code: 5416,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5416,
+            emitted_bytes: 0,
+        }
+    } else if !is_valid_packet_header(version_code, format_code, command_bytes, payload_bytes) {
+        PacketCodecTransitionResult {
+            state: PacketCodecRuntimeState {
+                initialized: state.initialized,
+                encoder_ready: state.encoder_ready,
+                decoder_ready: state.decoder_ready,
+                json_encode_count: state.json_encode_count,
+                json_decode_count: state.json_decode_count,
+                protobuf_encode_count: state.protobuf_encode_count,
+                protobuf_decode_count: state.protobuf_decode_count,
+                frame_build_count: state.frame_build_count,
+                frame_parse_count: state.frame_parse_count,
+                encode_error_count: state.encode_error_count,
+                decode_error_count: state.decode_error_count + 1,
+                parse_error_count: state.parse_error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_format_code: format_code,
+                last_reason_code: 5417,
+                last_frame_bytes: state.last_frame_bytes,
+            },
+            applied: false,
+            reason_code: 5417,
+            emitted_bytes: 0,
+        }
+    } else {
+        let frame_bytes = compute_frame_total_bytes(command_bytes, payload_bytes);
+        if !frame_bytes_integrity_ok {
+            PacketCodecTransitionResult {
+                state: PacketCodecRuntimeState {
+                    initialized: state.initialized,
+                    encoder_ready: state.encoder_ready,
+                    decoder_ready: state.decoder_ready,
+                    json_encode_count: state.json_encode_count,
+                    json_decode_count: state.json_decode_count,
+                    protobuf_encode_count: state.protobuf_encode_count,
+                    protobuf_decode_count: state.protobuf_decode_count,
+                    frame_build_count: state.frame_build_count,
+                    frame_parse_count: state.frame_parse_count,
+                    encode_error_count: state.encode_error_count,
+                    decode_error_count: state.decode_error_count + 1,
+                    parse_error_count: state.parse_error_count + 1,
+                    rejected_operation_count: state.rejected_operation_count + 1,
+                    last_format_code: format_code,
+                    last_reason_code: 5418,
+                    last_frame_bytes: state.last_frame_bytes,
+                },
+                applied: false,
+                reason_code: 5418,
+                emitted_bytes: frame_bytes,
+            }
+        } else {
+            PacketCodecTransitionResult {
+                state: PacketCodecRuntimeState {
+                    initialized: state.initialized,
+                    encoder_ready: state.encoder_ready,
+                    decoder_ready: state.decoder_ready,
+                    json_encode_count: state.json_encode_count,
+                    json_decode_count: state.json_decode_count,
+                    protobuf_encode_count: state.protobuf_encode_count,
+                    protobuf_decode_count: state.protobuf_decode_count,
+                    frame_build_count: state.frame_build_count,
+                    frame_parse_count: state.frame_parse_count + 1,
+                    encode_error_count: state.encode_error_count,
+                    decode_error_count: state.decode_error_count,
+                    parse_error_count: state.parse_error_count,
+                    rejected_operation_count: state.rejected_operation_count,
+                    last_format_code: format_code,
+                    last_reason_code: 0,
+                    last_frame_bytes: frame_bytes,
+                },
+                applied: true,
+                reason_code: 0,
+                emitted_bytes: frame_bytes,
+            }
+        }
+    }
+}
+
+def can_packet_codec_process_more_frames(
+    state: PacketCodecRuntimeState,
+    max_total_frames: i64,
+    max_error_count: i64,
+) -> bool
+requires max_total_frames >= 0 && max_error_count >= 0
+{
+    let total_frames = state.frame_build_count + state.frame_parse_count;
+    let total_errors = state.encode_error_count + state.decode_error_count + state.parse_error_count;
+    state.initialized && total_frames < max_total_frames && total_errors <= max_error_count
+}
+
+def should_packet_codec_alert(
+    state: PacketCodecRuntimeState,
+    max_rejected_count: i64,
+    max_error_count: i64,
+) -> bool
+requires max_rejected_count >= 0 && max_error_count >= 0
+{
+    let total_errors = state.encode_error_count + state.decode_error_count + state.parse_error_count;
+    state.rejected_operation_count >= max_rejected_count || total_errors > max_error_count
+}

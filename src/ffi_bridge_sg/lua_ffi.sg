@@ -1,0 +1,628 @@
+def lua_ffi_call_mode_sync() -> i64
+ensures result == 1
+{
+    1
+}
+
+def lua_ffi_call_mode_async() -> i64
+ensures result == 2
+{
+    2
+}
+
+def max_lua_ffi_arg_bytes() -> i64
+ensures result == 65536
+{
+    65536
+}
+
+def is_valid_lua_ffi_call_mode(call_mode: i64) -> bool
+requires call_mode >= 0
+{
+    call_mode == lua_ffi_call_mode_sync() || call_mode == lua_ffi_call_mode_async()
+}
+
+def is_valid_lua_ffi_signature_shape(function_name_bytes: i64, signature_bytes: i64) -> bool
+requires function_name_bytes >= 0 && signature_bytes >= 0
+{
+    function_name_bytes > 0
+        && function_name_bytes <= 128
+        && signature_bytes > 0
+        && signature_bytes <= 512
+}
+
+struct LuaFfiRuntimeState {
+    vm_online: bool,
+    ffi_ready: bool,
+    lua_script_version: i64,
+    registered_function_count: i64,
+    inflight_async_count: i64,
+    sync_call_count: i64,
+    async_call_count: i64,
+    callback_dispatch_count: i64,
+    hot_reload_count: i64,
+    error_count: i64,
+    rejected_operation_count: i64,
+    last_call_id: i64,
+    last_error_code: i64,
+}
+
+struct LuaFfiTransitionResult {
+    state: LuaFfiRuntimeState,
+    applied: bool,
+    reason_code: i64,
+    returned_bytes: i64,
+}
+
+def new_lua_ffi_runtime_state() -> LuaFfiRuntimeState
+{
+    LuaFfiRuntimeState {
+        vm_online: false,
+        ffi_ready: false,
+        lua_script_version: 1,
+        registered_function_count: 0,
+        inflight_async_count: 0,
+        sync_call_count: 0,
+        async_call_count: 0,
+        callback_dispatch_count: 0,
+        hot_reload_count: 0,
+        error_count: 0,
+        rejected_operation_count: 0,
+        last_call_id: 0,
+        last_error_code: 0,
+    }
+}
+
+def apply_lua_ffi_open(
+    state: LuaFfiRuntimeState,
+    vm_boot_ok: bool,
+    ffi_boot_ok: bool,
+) -> LuaFfiTransitionResult
+{
+    if state.vm_online {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: state.last_call_id,
+                last_error_code: 9801,
+            },
+            applied: false,
+            reason_code: 9801,
+            returned_bytes: 0,
+        }
+    } else if !vm_boot_ok || !ffi_boot_ok {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: false,
+                ffi_ready: false,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: state.last_call_id,
+                last_error_code: 9802,
+            },
+            applied: false,
+            reason_code: 9802,
+            returned_bytes: 0,
+        }
+    } else {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: true,
+                ffi_ready: true,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_call_id: state.last_call_id,
+                last_error_code: state.last_error_code,
+            },
+            applied: true,
+            reason_code: 0,
+            returned_bytes: 0,
+        }
+    }
+}
+
+def apply_lua_ffi_register_function(
+    state: LuaFfiRuntimeState,
+    function_name_bytes: i64,
+    signature_bytes: i64,
+    duplicate_function_name: bool,
+    symbol_bound: bool,
+) -> LuaFfiTransitionResult
+requires function_name_bytes >= 0 && signature_bytes >= 0
+{
+    if !state.vm_online || !state.ffi_ready {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: state.last_call_id,
+                last_error_code: 9803,
+            },
+            applied: false,
+            reason_code: 9803,
+            returned_bytes: 0,
+        }
+    } else if !is_valid_lua_ffi_signature_shape(function_name_bytes, signature_bytes) {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: state.last_call_id,
+                last_error_code: 9804,
+            },
+            applied: false,
+            reason_code: 9804,
+            returned_bytes: 0,
+        }
+    } else if duplicate_function_name || !symbol_bound {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: state.last_call_id,
+                last_error_code: 9805,
+            },
+            applied: false,
+            reason_code: 9805,
+            returned_bytes: 0,
+        }
+    } else {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count + 1,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_call_id: state.last_call_id,
+                last_error_code: state.last_error_code,
+            },
+            applied: true,
+            reason_code: 0,
+            returned_bytes: 0,
+        }
+    }
+}
+
+def apply_lua_ffi_call(
+    state: LuaFfiRuntimeState,
+    call_id: i64,
+    call_mode: i64,
+    arg_bytes: i64,
+    function_registered: bool,
+    call_ok: bool,
+    return_bytes: i64,
+    max_inflight_async: i64,
+) -> LuaFfiTransitionResult
+requires call_id >= 0 && call_mode >= 0 && arg_bytes >= 0 && return_bytes >= 0 && max_inflight_async > 0
+{
+    if !state.vm_online || !state.ffi_ready {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: call_id,
+                last_error_code: 9806,
+            },
+            applied: false,
+            reason_code: 9806,
+            returned_bytes: 0,
+        }
+    } else if !function_registered
+        || !is_valid_lua_ffi_call_mode(call_mode)
+        || arg_bytes > max_lua_ffi_arg_bytes() {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: call_id,
+                last_error_code: 9807,
+            },
+            applied: false,
+            reason_code: 9807,
+            returned_bytes: 0,
+        }
+    } else if call_mode == lua_ffi_call_mode_async() && state.inflight_async_count >= max_inflight_async {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: call_id,
+                last_error_code: 9808,
+            },
+            applied: false,
+            reason_code: 9808,
+            returned_bytes: 0,
+        }
+    } else if !call_ok {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: call_id,
+                last_error_code: 9809,
+            },
+            applied: false,
+            reason_code: 9809,
+            returned_bytes: 0,
+        }
+    } else if call_mode == lua_ffi_call_mode_sync() {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count + 1,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_call_id: call_id,
+                last_error_code: state.last_error_code,
+            },
+            applied: true,
+            reason_code: 0,
+            returned_bytes: return_bytes,
+        }
+    } else {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count + 1,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count + 1,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_call_id: call_id,
+                last_error_code: state.last_error_code,
+            },
+            applied: true,
+            reason_code: 0,
+            returned_bytes: 0,
+        }
+    }
+}
+
+def apply_lua_ffi_dispatch_callback(
+    state: LuaFfiRuntimeState,
+    call_id: i64,
+    callback_ok: bool,
+) -> LuaFfiTransitionResult
+requires call_id >= 0
+{
+    if !state.vm_online || !state.ffi_ready {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: call_id,
+                last_error_code: 9810,
+            },
+            applied: false,
+            reason_code: 9810,
+            returned_bytes: 0,
+        }
+    } else if state.inflight_async_count == 0 || call_id == 0 {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: call_id,
+                last_error_code: 9811,
+            },
+            applied: false,
+            reason_code: 9811,
+            returned_bytes: 0,
+        }
+    } else if !callback_ok {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count - 1,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: call_id,
+                last_error_code: 9812,
+            },
+            applied: false,
+            reason_code: 9812,
+            returned_bytes: 0,
+        }
+    } else {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count - 1,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count + 1,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_call_id: call_id,
+                last_error_code: state.last_error_code,
+            },
+            applied: true,
+            reason_code: 0,
+            returned_bytes: 0,
+        }
+    }
+}
+
+def apply_lua_ffi_hot_reload(
+    state: LuaFfiRuntimeState,
+    next_lua_script_version: i64,
+    reload_ok: bool,
+    preserve_registry: bool,
+) -> LuaFfiTransitionResult
+requires next_lua_script_version > 0
+{
+    if !state.vm_online || !state.ffi_ready {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: state.last_call_id,
+                last_error_code: 9813,
+            },
+            applied: false,
+            reason_code: 9813,
+            returned_bytes: 0,
+        }
+    } else if !reload_ok || next_lua_script_version <= state.lua_script_version {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: state.last_call_id,
+                last_error_code: 9814,
+            },
+            applied: false,
+            reason_code: 9814,
+            returned_bytes: 0,
+        }
+    } else {
+        let next_registered_count = if preserve_registry {
+            state.registered_function_count
+        } else {
+            0
+        };
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: next_lua_script_version,
+                registered_function_count: next_registered_count,
+                inflight_async_count: 0,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count + 1,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_call_id: state.last_call_id,
+                last_error_code: state.last_error_code,
+            },
+            applied: true,
+            reason_code: 0,
+            returned_bytes: 0,
+        }
+    }
+}
+
+def apply_lua_ffi_close(state: LuaFfiRuntimeState) -> LuaFfiTransitionResult
+{
+    if !state.vm_online {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: state.vm_online,
+                ffi_ready: state.ffi_ready,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: state.inflight_async_count,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_call_id: state.last_call_id,
+                last_error_code: 9815,
+            },
+            applied: false,
+            reason_code: 9815,
+            returned_bytes: 0,
+        }
+    } else {
+        LuaFfiTransitionResult {
+            state: LuaFfiRuntimeState {
+                vm_online: false,
+                ffi_ready: false,
+                lua_script_version: state.lua_script_version,
+                registered_function_count: state.registered_function_count,
+                inflight_async_count: 0,
+                sync_call_count: state.sync_call_count,
+                async_call_count: state.async_call_count,
+                callback_dispatch_count: state.callback_dispatch_count,
+                hot_reload_count: state.hot_reload_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_call_id: state.last_call_id,
+                last_error_code: state.last_error_code,
+            },
+            applied: true,
+            reason_code: 0,
+            returned_bytes: 0,
+        }
+    }
+}
+
+def can_lua_ffi_dispatch_more(
+    state: LuaFfiRuntimeState,
+    max_inflight_async: i64,
+    max_error_count: i64,
+) -> bool
+requires max_inflight_async >= 0 && max_error_count >= 0
+{
+    state.vm_online
+        && state.ffi_ready
+        && state.inflight_async_count < max_inflight_async
+        && state.error_count <= max_error_count
+}
+
+def should_lua_ffi_alert(
+    state: LuaFfiRuntimeState,
+    max_error_count: i64,
+    max_rejected_count: i64,
+) -> bool
+requires max_error_count >= 0 && max_rejected_count >= 0
+{
+    state.error_count > max_error_count || state.rejected_operation_count >= max_rejected_count
+}

@@ -35,7 +35,10 @@ $targets = @(
   "src/core_sg/stability.sg",
   "src/ffi_bridge_sg/c_wrapper.sg",
   "src/ffi_bridge_sg/rpc_bridge.sg",
+  "src/ffi_bridge_sg/lua_ffi.sg",
   "src/codec_sg/packet_wire.sg",
+  "src/codec_sg/packet_codec.sg",
+  "src/server_sg/sqlite_store.sg",
   "src/server_sg/runtime_host.sg",
   "src/server_sg/runtime_host_adapter.sg"
 )

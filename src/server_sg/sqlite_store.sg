@@ -1,0 +1,894 @@
+def sqlite_journal_mode_wal() -> i64
+ensures result == 1
+{
+    1
+}
+
+def sqlite_journal_mode_delete() -> i64
+ensures result == 2
+{
+    2
+}
+
+def is_valid_sqlite_journal_mode(mode_code: i64) -> bool
+requires mode_code >= 0
+{
+    mode_code == sqlite_journal_mode_wal() || mode_code == sqlite_journal_mode_delete()
+}
+
+def is_valid_sqlite_path_bytes(path_bytes: i64) -> bool
+requires path_bytes >= 0
+{
+    path_bytes > 0 && path_bytes <= 4096
+}
+
+def max_sqlite_bind_bytes() -> i64
+ensures result == 1048576
+{
+    1048576
+}
+
+struct SqliteStoreRuntimeState {
+    connected: bool,
+    schema_ready: bool,
+    read_only: bool,
+    journal_mode_code: i64,
+    active_transaction: bool,
+    transaction_write_mode: bool,
+    read_count: i64,
+    write_count: i64,
+    upsert_count: i64,
+    delete_count: i64,
+    hit_count: i64,
+    miss_count: i64,
+    commit_count: i64,
+    rollback_count: i64,
+    busy_retry_count: i64,
+    error_count: i64,
+    rejected_operation_count: i64,
+    last_error_code: i64,
+    last_affected_rows: i64,
+}
+
+struct SqliteStoreTransitionResult {
+    state: SqliteStoreRuntimeState,
+    applied: bool,
+    reason_code: i64,
+    affected_rows: i64,
+}
+
+def new_sqlite_store_runtime_state() -> SqliteStoreRuntimeState
+{
+    SqliteStoreRuntimeState {
+        connected: false,
+        schema_ready: false,
+        read_only: false,
+        journal_mode_code: sqlite_journal_mode_wal(),
+        active_transaction: false,
+        transaction_write_mode: false,
+        read_count: 0,
+        write_count: 0,
+        upsert_count: 0,
+        delete_count: 0,
+        hit_count: 0,
+        miss_count: 0,
+        commit_count: 0,
+        rollback_count: 0,
+        busy_retry_count: 0,
+        error_count: 0,
+        rejected_operation_count: 0,
+        last_error_code: 0,
+        last_affected_rows: 0,
+    }
+}
+
+def apply_sqlite_store_open(
+    state: SqliteStoreRuntimeState,
+    path_bytes: i64,
+    read_only: bool,
+    journal_mode_code: i64,
+    open_ok: bool,
+    schema_ready: bool,
+) -> SqliteStoreTransitionResult
+requires path_bytes >= 0 && journal_mode_code >= 0
+{
+    if state.connected {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9901,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9901,
+            affected_rows: 0,
+        }
+    } else if !open_ok
+        || !schema_ready
+        || !is_valid_sqlite_path_bytes(path_bytes)
+        || !is_valid_sqlite_journal_mode(journal_mode_code) {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: false,
+                schema_ready: false,
+                read_only: read_only,
+                journal_mode_code: journal_mode_code,
+                active_transaction: false,
+                transaction_write_mode: false,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9902,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9902,
+            affected_rows: 0,
+        }
+    } else {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: true,
+                schema_ready: true,
+                read_only: read_only,
+                journal_mode_code: journal_mode_code,
+                active_transaction: false,
+                transaction_write_mode: false,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_error_code: state.last_error_code,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: true,
+            reason_code: 0,
+            affected_rows: 0,
+        }
+    }
+}
+
+def apply_sqlite_store_begin_transaction(
+    state: SqliteStoreRuntimeState,
+    write_mode: bool,
+    busy_retry_used: bool,
+    max_busy_retry_count: i64,
+) -> SqliteStoreTransitionResult
+requires max_busy_retry_count >= 0
+{
+    if !state.connected || !state.schema_ready || state.active_transaction {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9903,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9903,
+            affected_rows: 0,
+        }
+    } else if write_mode && state.read_only {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9904,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9904,
+            affected_rows: 0,
+        }
+    } else if busy_retry_used && state.busy_retry_count >= max_busy_retry_count {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9905,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9905,
+            affected_rows: 0,
+        }
+    } else {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: true,
+                transaction_write_mode: write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: if busy_retry_used {
+                    state.busy_retry_count + 1
+                } else {
+                    state.busy_retry_count
+                },
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_error_code: state.last_error_code,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: true,
+            reason_code: 0,
+            affected_rows: 0,
+        }
+    }
+}
+
+def apply_sqlite_store_query(
+    state: SqliteStoreRuntimeState,
+    bind_bytes: i64,
+    query_ok: bool,
+    returned_rows: i64,
+) -> SqliteStoreTransitionResult
+requires bind_bytes >= 0 && returned_rows >= 0
+{
+    if !state.connected || !state.schema_ready {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9906,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9906,
+            affected_rows: 0,
+        }
+    } else if bind_bytes > max_sqlite_bind_bytes() || !query_ok {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9907,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9907,
+            affected_rows: 0,
+        }
+    } else {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count + 1,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: if returned_rows > 0 { state.hit_count + 1 } else { state.hit_count },
+                miss_count: if returned_rows == 0 { state.miss_count + 1 } else { state.miss_count },
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_error_code: state.last_error_code,
+                last_affected_rows: returned_rows,
+            },
+            applied: true,
+            reason_code: 0,
+            affected_rows: returned_rows,
+        }
+    }
+}
+
+def apply_sqlite_store_upsert(
+    state: SqliteStoreRuntimeState,
+    bind_bytes: i64,
+    write_ok: bool,
+    affected_rows: i64,
+) -> SqliteStoreTransitionResult
+requires bind_bytes >= 0 && affected_rows >= 0
+{
+    if !state.connected || !state.schema_ready {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9906,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9906,
+            affected_rows: 0,
+        }
+    } else if !state.active_transaction || !state.transaction_write_mode || state.read_only {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9908,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9908,
+            affected_rows: 0,
+        }
+    } else if bind_bytes > max_sqlite_bind_bytes() || !write_ok {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9909,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9909,
+            affected_rows: 0,
+        }
+    } else {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count + 1,
+                upsert_count: state.upsert_count + 1,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_error_code: state.last_error_code,
+                last_affected_rows: affected_rows,
+            },
+            applied: true,
+            reason_code: 0,
+            affected_rows: affected_rows,
+        }
+    }
+}
+
+def apply_sqlite_store_delete(
+    state: SqliteStoreRuntimeState,
+    bind_bytes: i64,
+    delete_ok: bool,
+    affected_rows: i64,
+) -> SqliteStoreTransitionResult
+requires bind_bytes >= 0 && affected_rows >= 0
+{
+    if !state.connected || !state.schema_ready {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9906,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9906,
+            affected_rows: 0,
+        }
+    } else if !state.active_transaction || !state.transaction_write_mode || state.read_only {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9908,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9908,
+            affected_rows: 0,
+        }
+    } else if bind_bytes > max_sqlite_bind_bytes() || !delete_ok {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9910,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9910,
+            affected_rows: 0,
+        }
+    } else {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count + 1,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count + 1,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_error_code: state.last_error_code,
+                last_affected_rows: affected_rows,
+            },
+            applied: true,
+            reason_code: 0,
+            affected_rows: affected_rows,
+        }
+    }
+}
+
+def apply_sqlite_store_commit(
+    state: SqliteStoreRuntimeState,
+    commit_ok: bool,
+) -> SqliteStoreTransitionResult
+{
+    if !state.connected || !state.active_transaction {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9911,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9911,
+            affected_rows: 0,
+        }
+    } else if !commit_ok {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9912,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9912,
+            affected_rows: 0,
+        }
+    } else {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: false,
+                transaction_write_mode: false,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count + 1,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_error_code: state.last_error_code,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: true,
+            reason_code: 0,
+            affected_rows: 0,
+        }
+    }
+}
+
+def apply_sqlite_store_rollback(
+    state: SqliteStoreRuntimeState,
+    rollback_ok: bool,
+) -> SqliteStoreTransitionResult
+{
+    if !state.connected || !state.active_transaction {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9913,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9913,
+            affected_rows: 0,
+        }
+    } else if !rollback_ok {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9914,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9914,
+            affected_rows: 0,
+        }
+    } else {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: false,
+                transaction_write_mode: false,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count + 1,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_error_code: state.last_error_code,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: true,
+            reason_code: 0,
+            affected_rows: 0,
+        }
+    }
+}
+
+def apply_sqlite_store_close(state: SqliteStoreRuntimeState) -> SqliteStoreTransitionResult
+{
+    if !state.connected {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: state.connected,
+                schema_ready: state.schema_ready,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: state.active_transaction,
+                transaction_write_mode: state.transaction_write_mode,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9915,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: false,
+            reason_code: 9915,
+            affected_rows: 0,
+        }
+    } else {
+        SqliteStoreTransitionResult {
+            state: SqliteStoreRuntimeState {
+                connected: false,
+                schema_ready: false,
+                read_only: state.read_only,
+                journal_mode_code: state.journal_mode_code,
+                active_transaction: false,
+                transaction_write_mode: false,
+                read_count: state.read_count,
+                write_count: state.write_count,
+                upsert_count: state.upsert_count,
+                delete_count: state.delete_count,
+                hit_count: state.hit_count,
+                miss_count: state.miss_count,
+                commit_count: state.commit_count,
+                rollback_count: state.rollback_count,
+                busy_retry_count: state.busy_retry_count,
+                error_count: state.error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_error_code: state.last_error_code,
+                last_affected_rows: state.last_affected_rows,
+            },
+            applied: true,
+            reason_code: 0,
+            affected_rows: 0,
+        }
+    }
+}
+
+def can_sqlite_store_write(
+    state: SqliteStoreRuntimeState,
+    max_error_count: i64,
+) -> bool
+requires max_error_count >= 0
+{
+    state.connected
+        && state.schema_ready
+        && !state.read_only
+        && state.active_transaction
+        && state.transaction_write_mode
+        && state.error_count <= max_error_count
+}
+
+def should_sqlite_store_alert(
+    state: SqliteStoreRuntimeState,
+    max_error_count: i64,
+    max_rejected_count: i64,
+) -> bool
+requires max_error_count >= 0 && max_rejected_count >= 0
+{
+    state.error_count > max_error_count || state.rejected_operation_count >= max_rejected_count
+}
