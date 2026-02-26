@@ -29,3 +29,390 @@ def use_null_placeholder(is_null_value: bool) -> bool
 {
     is_null_value
 }
+
+def host_io_opcode_accept_tcp() -> i64
+ensures result == 1
+{
+    1
+}
+
+def host_io_opcode_read_tcp() -> i64
+ensures result == 2
+{
+    2
+}
+
+def host_io_opcode_write_tcp() -> i64
+ensures result == 3
+{
+    3
+}
+
+def host_io_opcode_recv_udp() -> i64
+ensures result == 4
+{
+    4
+}
+
+def host_io_opcode_send_udp() -> i64
+ensures result == 5
+{
+    5
+}
+
+def host_io_opcode_poll() -> i64
+ensures result == 6
+{
+    6
+}
+
+def host_io_opcode_timer_tick() -> i64
+ensures result == 7
+{
+    7
+}
+
+def is_valid_host_io_opcode(opcode: i64) -> bool
+requires opcode >= 0
+{
+    opcode >= host_io_opcode_accept_tcp() && opcode <= host_io_opcode_timer_tick()
+}
+
+def next_host_io_sequence_id(current_sequence_id: i64) -> i64
+requires current_sequence_id >= 1
+ensures result >= 1
+{
+    if current_sequence_id >= 2000000000 {
+        1
+    } else {
+        current_sequence_id + 1
+    }
+}
+
+struct HostIoCommand {
+    sequence_id: i64,
+    opcode: i64,
+    endpoint_id: i64,
+    payload_bytes: i64,
+    aux_code: i64,
+}
+
+struct HostIoBridgeRuntimeState {
+    bridge_online: bool,
+    next_sequence_id: i64,
+    inflight_count: i64,
+    emitted_command_count: i64,
+    ack_ok_count: i64,
+    ack_error_count: i64,
+    rejected_operation_count: i64,
+    last_error_code: i64,
+    last_opcode: i64,
+}
+
+struct HostIoBridgeTransitionResult {
+    state: HostIoBridgeRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+struct HostIoBridgeEmitResult {
+    state: HostIoBridgeRuntimeState,
+    applied: bool,
+    reason_code: i64,
+    command: HostIoCommand,
+}
+
+def empty_host_io_command() -> HostIoCommand
+{
+    HostIoCommand {
+        sequence_id: 0,
+        opcode: 0,
+        endpoint_id: 0,
+        payload_bytes: 0,
+        aux_code: 0,
+    }
+}
+
+def new_host_io_bridge_runtime_state() -> HostIoBridgeRuntimeState
+{
+    HostIoBridgeRuntimeState {
+        bridge_online: false,
+        next_sequence_id: 1,
+        inflight_count: 0,
+        emitted_command_count: 0,
+        ack_ok_count: 0,
+        ack_error_count: 0,
+        rejected_operation_count: 0,
+        last_error_code: 0,
+        last_opcode: 0,
+    }
+}
+
+def apply_host_io_bridge_open(
+    state: HostIoBridgeRuntimeState,
+    host_online: bool,
+) -> HostIoBridgeTransitionResult
+{
+    if state.bridge_online {
+        HostIoBridgeTransitionResult {
+            state: HostIoBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_count: state.inflight_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: state.last_error_code,
+                last_opcode: state.last_opcode,
+            },
+            applied: false,
+            reason_code: 9101,
+        }
+    } else if !host_online {
+        HostIoBridgeTransitionResult {
+            state: HostIoBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_count: state.inflight_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9102,
+                last_opcode: state.last_opcode,
+            },
+            applied: false,
+            reason_code: 9102,
+        }
+    } else {
+        HostIoBridgeTransitionResult {
+            state: HostIoBridgeRuntimeState {
+                bridge_online: true,
+                next_sequence_id: state.next_sequence_id,
+                inflight_count: state.inflight_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_error_code: state.last_error_code,
+                last_opcode: state.last_opcode,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_host_io_bridge_emit(
+    state: HostIoBridgeRuntimeState,
+    opcode: i64,
+    endpoint_id: i64,
+    payload_bytes: i64,
+    aux_code: i64,
+    max_inflight: i64,
+) -> HostIoBridgeEmitResult
+requires opcode >= 0 && endpoint_id >= 0 && payload_bytes >= 0 && max_inflight > 0
+{
+    if !state.bridge_online {
+        HostIoBridgeEmitResult {
+            state: HostIoBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_count: state.inflight_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9103,
+                last_opcode: state.last_opcode,
+            },
+            applied: false,
+            reason_code: 9103,
+            command: empty_host_io_command(),
+        }
+    } else if !is_valid_host_io_opcode(opcode) {
+        HostIoBridgeEmitResult {
+            state: HostIoBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_count: state.inflight_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9104,
+                last_opcode: opcode,
+            },
+            applied: false,
+            reason_code: 9104,
+            command: empty_host_io_command(),
+        }
+    } else if state.inflight_count >= max_inflight {
+        HostIoBridgeEmitResult {
+            state: HostIoBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_count: state.inflight_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9105,
+                last_opcode: opcode,
+            },
+            applied: false,
+            reason_code: 9105,
+            command: empty_host_io_command(),
+        }
+    } else {
+        let sequence_id = state.next_sequence_id;
+        let command = HostIoCommand {
+            sequence_id: sequence_id,
+            opcode: opcode,
+            endpoint_id: endpoint_id,
+            payload_bytes: payload_bytes,
+            aux_code: aux_code,
+        };
+        HostIoBridgeEmitResult {
+            state: HostIoBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                next_sequence_id: next_host_io_sequence_id(sequence_id),
+                inflight_count: state.inflight_count + 1,
+                emitted_command_count: state.emitted_command_count + 1,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_error_code: state.last_error_code,
+                last_opcode: opcode,
+            },
+            applied: true,
+            reason_code: 0,
+            command: command,
+        }
+    }
+}
+
+def apply_host_io_bridge_ack(
+    state: HostIoBridgeRuntimeState,
+    sequence_id: i64,
+    ack_ok: bool,
+    ack_error_code: i64,
+) -> HostIoBridgeTransitionResult
+requires sequence_id >= 0 && ack_error_code >= 0
+{
+    if !state.bridge_online {
+        HostIoBridgeTransitionResult {
+            state: HostIoBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_count: state.inflight_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9103,
+                last_opcode: state.last_opcode,
+            },
+            applied: false,
+            reason_code: 9103,
+        }
+    } else if sequence_id == 0 || state.inflight_count == 0 {
+        HostIoBridgeTransitionResult {
+            state: HostIoBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_count: state.inflight_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: 9106,
+                last_opcode: state.last_opcode,
+            },
+            applied: false,
+            reason_code: 9106,
+        }
+    } else if ack_ok {
+        HostIoBridgeTransitionResult {
+            state: HostIoBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_count: state.inflight_count - 1,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count + 1,
+                ack_error_count: state.ack_error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_error_code: state.last_error_code,
+                last_opcode: state.last_opcode,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        HostIoBridgeTransitionResult {
+            state: HostIoBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_count: state.inflight_count - 1,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count + 1,
+                rejected_operation_count: state.rejected_operation_count,
+                last_error_code: ack_error_code,
+                last_opcode: state.last_opcode,
+            },
+            applied: false,
+            reason_code: 9107,
+        }
+    }
+}
+
+def apply_host_io_bridge_close(state: HostIoBridgeRuntimeState) -> HostIoBridgeTransitionResult
+{
+    if !state.bridge_online {
+        HostIoBridgeTransitionResult {
+            state: HostIoBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                next_sequence_id: state.next_sequence_id,
+                inflight_count: state.inflight_count,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_error_code: state.last_error_code,
+                last_opcode: state.last_opcode,
+            },
+            applied: false,
+            reason_code: 9108,
+        }
+    } else {
+        HostIoBridgeTransitionResult {
+            state: HostIoBridgeRuntimeState {
+                bridge_online: false,
+                next_sequence_id: state.next_sequence_id,
+                inflight_count: 0,
+                emitted_command_count: state.emitted_command_count,
+                ack_ok_count: state.ack_ok_count,
+                ack_error_count: state.ack_error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_error_code: state.last_error_code,
+                last_opcode: state.last_opcode,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def can_host_io_bridge_emit(state: HostIoBridgeRuntimeState, max_inflight: i64) -> bool
+requires max_inflight > 0
+{
+    state.bridge_online && state.inflight_count < max_inflight
+}
+
+def should_host_io_bridge_backpressure(state: HostIoBridgeRuntimeState, max_inflight: i64) -> bool
+requires max_inflight >= 0
+{
+    state.inflight_count >= max_inflight
+}
