@@ -46,3 +46,393 @@ def should_accept_incomplete_stream(decode_needs_more_data: bool) -> bool
 {
     decode_needs_more_data
 }
+
+def default_lua_bridge_version() -> i64
+ensures result == 1
+{
+    1
+}
+
+struct LuaBridgeRuntimeState {
+    bridge_online: bool,
+    script_version: i64,
+    pending_request_count: i64,
+    hello_request_count: i64,
+    hot_reload_count: i64,
+    response_ok_count: i64,
+    response_error_count: i64,
+    rejected_operation_count: i64,
+    last_response_id: i64,
+    last_error_code: i64,
+}
+
+struct LuaBridgeTransitionResult {
+    state: LuaBridgeRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_lua_bridge_runtime_state() -> LuaBridgeRuntimeState
+{
+    LuaBridgeRuntimeState {
+        bridge_online: false,
+        script_version: default_lua_bridge_version(),
+        pending_request_count: 0,
+        hello_request_count: 0,
+        hot_reload_count: 0,
+        response_ok_count: 0,
+        response_error_count: 0,
+        rejected_operation_count: 0,
+        last_response_id: 0,
+        last_error_code: 0,
+    }
+}
+
+def apply_lua_bridge_open(
+    state: LuaBridgeRuntimeState,
+    bridge_available: bool,
+) -> LuaBridgeTransitionResult
+{
+    if state.bridge_online {
+        LuaBridgeTransitionResult {
+            state: LuaBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                script_version: state.script_version,
+                pending_request_count: state.pending_request_count,
+                hello_request_count: state.hello_request_count,
+                hot_reload_count: state.hot_reload_count,
+                response_ok_count: state.response_ok_count,
+                response_error_count: state.response_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_response_id: state.last_response_id,
+                last_error_code: state.last_error_code,
+            },
+            applied: false,
+            reason_code: 9401,
+        }
+    } else if !bridge_available {
+        LuaBridgeTransitionResult {
+            state: LuaBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                script_version: state.script_version,
+                pending_request_count: state.pending_request_count,
+                hello_request_count: state.hello_request_count,
+                hot_reload_count: state.hot_reload_count,
+                response_ok_count: state.response_ok_count,
+                response_error_count: state.response_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_response_id: state.last_response_id,
+                last_error_code: 9402,
+            },
+            applied: false,
+            reason_code: 9402,
+        }
+    } else {
+        LuaBridgeTransitionResult {
+            state: LuaBridgeRuntimeState {
+                bridge_online: true,
+                script_version: state.script_version,
+                pending_request_count: state.pending_request_count,
+                hello_request_count: state.hello_request_count,
+                hot_reload_count: state.hot_reload_count,
+                response_ok_count: state.response_ok_count,
+                response_error_count: state.response_error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_response_id: state.last_response_id,
+                last_error_code: state.last_error_code,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_lua_bridge_hello_notification(
+    state: LuaBridgeRuntimeState,
+    packet_is_notification: bool,
+    method_is_hello: bool,
+    packet_id: i64,
+) -> LuaBridgeTransitionResult
+{
+    if !state.bridge_online {
+        LuaBridgeTransitionResult {
+            state: LuaBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                script_version: state.script_version,
+                pending_request_count: state.pending_request_count,
+                hello_request_count: state.hello_request_count,
+                hot_reload_count: state.hot_reload_count,
+                response_ok_count: state.response_ok_count,
+                response_error_count: state.response_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_response_id: state.last_response_id,
+                last_error_code: 9403,
+            },
+            applied: false,
+            reason_code: 9403,
+        }
+    } else if !should_accept_lua_hello_notification(packet_is_notification, method_is_hello, packet_id) {
+        LuaBridgeTransitionResult {
+            state: LuaBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                script_version: state.script_version,
+                pending_request_count: state.pending_request_count,
+                hello_request_count: state.hello_request_count,
+                hot_reload_count: state.hot_reload_count,
+                response_ok_count: state.response_ok_count,
+                response_error_count: state.response_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_response_id: state.last_response_id,
+                last_error_code: 9404,
+            },
+            applied: false,
+            reason_code: 9404,
+        }
+    } else {
+        LuaBridgeTransitionResult {
+            state: LuaBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                script_version: state.script_version,
+                pending_request_count: state.pending_request_count + 1,
+                hello_request_count: state.hello_request_count + 1,
+                hot_reload_count: state.hot_reload_count,
+                response_ok_count: state.response_ok_count,
+                response_error_count: state.response_error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_response_id: state.last_response_id,
+                last_error_code: state.last_error_code,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_lua_bridge_response(
+    state: LuaBridgeRuntimeState,
+    packet_id: i64,
+    expected_id: i64,
+    method_is_empty: bool,
+    error_code: i64,
+) -> LuaBridgeTransitionResult
+{
+    if !state.bridge_online {
+        LuaBridgeTransitionResult {
+            state: LuaBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                script_version: state.script_version,
+                pending_request_count: state.pending_request_count,
+                hello_request_count: state.hello_request_count,
+                hot_reload_count: state.hot_reload_count,
+                response_ok_count: state.response_ok_count,
+                response_error_count: state.response_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_response_id: state.last_response_id,
+                last_error_code: 9403,
+            },
+            applied: false,
+            reason_code: 9403,
+        }
+    } else if state.pending_request_count == 0 {
+        LuaBridgeTransitionResult {
+            state: LuaBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                script_version: state.script_version,
+                pending_request_count: state.pending_request_count,
+                hello_request_count: state.hello_request_count,
+                hot_reload_count: state.hot_reload_count,
+                response_ok_count: state.response_ok_count,
+                response_error_count: state.response_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_response_id: state.last_response_id,
+                last_error_code: 9405,
+            },
+            applied: false,
+            reason_code: 9405,
+        }
+    } else {
+        let next_pending = state.pending_request_count - 1;
+        if should_abort_wait_on_lua_rpc_error(error_code) {
+            LuaBridgeTransitionResult {
+                state: LuaBridgeRuntimeState {
+                    bridge_online: state.bridge_online,
+                    script_version: state.script_version,
+                    pending_request_count: next_pending,
+                    hello_request_count: state.hello_request_count,
+                    hot_reload_count: state.hot_reload_count,
+                    response_ok_count: state.response_ok_count,
+                    response_error_count: state.response_error_count + 1,
+                    rejected_operation_count: state.rejected_operation_count,
+                    last_response_id: packet_id,
+                    last_error_code: error_code,
+                },
+                applied: false,
+                reason_code: 9406,
+            }
+        } else if !should_match_waited_lua_response(packet_id, expected_id, method_is_empty, error_code) {
+            LuaBridgeTransitionResult {
+                state: LuaBridgeRuntimeState {
+                    bridge_online: state.bridge_online,
+                    script_version: state.script_version,
+                    pending_request_count: next_pending,
+                    hello_request_count: state.hello_request_count,
+                    hot_reload_count: state.hot_reload_count,
+                    response_ok_count: state.response_ok_count,
+                    response_error_count: state.response_error_count + 1,
+                    rejected_operation_count: state.rejected_operation_count + 1,
+                    last_response_id: packet_id,
+                    last_error_code: 9407,
+                },
+                applied: false,
+                reason_code: 9407,
+            }
+        } else {
+            LuaBridgeTransitionResult {
+                state: LuaBridgeRuntimeState {
+                    bridge_online: state.bridge_online,
+                    script_version: state.script_version,
+                    pending_request_count: next_pending,
+                    hello_request_count: state.hello_request_count,
+                    hot_reload_count: state.hot_reload_count,
+                    response_ok_count: state.response_ok_count + 1,
+                    response_error_count: state.response_error_count,
+                    rejected_operation_count: state.rejected_operation_count,
+                    last_response_id: packet_id,
+                    last_error_code: state.last_error_code,
+                },
+                applied: true,
+                reason_code: 0,
+            }
+        }
+    }
+}
+
+def apply_lua_bridge_hot_reload(
+    state: LuaBridgeRuntimeState,
+    bridge_available: bool,
+    reload_success: bool,
+    next_script_version: i64,
+) -> LuaBridgeTransitionResult
+requires next_script_version > 0
+{
+    if !state.bridge_online || !bridge_available {
+        LuaBridgeTransitionResult {
+            state: LuaBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                script_version: state.script_version,
+                pending_request_count: state.pending_request_count,
+                hello_request_count: state.hello_request_count,
+                hot_reload_count: state.hot_reload_count,
+                response_ok_count: state.response_ok_count,
+                response_error_count: state.response_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_response_id: state.last_response_id,
+                last_error_code: 9408,
+            },
+            applied: false,
+            reason_code: 9408,
+        }
+    } else if !reload_success {
+        LuaBridgeTransitionResult {
+            state: LuaBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                script_version: state.script_version,
+                pending_request_count: state.pending_request_count,
+                hello_request_count: state.hello_request_count,
+                hot_reload_count: state.hot_reload_count,
+                response_ok_count: state.response_ok_count,
+                response_error_count: state.response_error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_response_id: state.last_response_id,
+                last_error_code: 9409,
+            },
+            applied: false,
+            reason_code: 9409,
+        }
+    } else if next_script_version <= state.script_version {
+        LuaBridgeTransitionResult {
+            state: LuaBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                script_version: state.script_version,
+                pending_request_count: state.pending_request_count,
+                hello_request_count: state.hello_request_count,
+                hot_reload_count: state.hot_reload_count,
+                response_ok_count: state.response_ok_count,
+                response_error_count: state.response_error_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_response_id: state.last_response_id,
+                last_error_code: 9410,
+            },
+            applied: false,
+            reason_code: 9410,
+        }
+    } else {
+        LuaBridgeTransitionResult {
+            state: LuaBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                script_version: next_script_version,
+                pending_request_count: state.pending_request_count,
+                hello_request_count: state.hello_request_count,
+                hot_reload_count: state.hot_reload_count + 1,
+                response_ok_count: state.response_ok_count,
+                response_error_count: state.response_error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_response_id: state.last_response_id,
+                last_error_code: state.last_error_code,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_lua_bridge_close(state: LuaBridgeRuntimeState) -> LuaBridgeTransitionResult
+{
+    if !state.bridge_online {
+        LuaBridgeTransitionResult {
+            state: LuaBridgeRuntimeState {
+                bridge_online: state.bridge_online,
+                script_version: state.script_version,
+                pending_request_count: state.pending_request_count,
+                hello_request_count: state.hello_request_count,
+                hot_reload_count: state.hot_reload_count,
+                response_ok_count: state.response_ok_count,
+                response_error_count: state.response_error_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                last_response_id: state.last_response_id,
+                last_error_code: state.last_error_code,
+            },
+            applied: false,
+            reason_code: 9411,
+        }
+    } else {
+        LuaBridgeTransitionResult {
+            state: LuaBridgeRuntimeState {
+                bridge_online: false,
+                script_version: state.script_version,
+                pending_request_count: 0,
+                hello_request_count: state.hello_request_count,
+                hot_reload_count: state.hot_reload_count,
+                response_ok_count: state.response_ok_count,
+                response_error_count: state.response_error_count,
+                rejected_operation_count: state.rejected_operation_count,
+                last_response_id: state.last_response_id,
+                last_error_code: state.last_error_code,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def can_lua_bridge_dispatch(state: LuaBridgeRuntimeState, max_pending: i64) -> bool
+requires max_pending >= 0
+{
+    state.bridge_online && state.pending_request_count < max_pending
+}
+
+def should_lua_bridge_alert(state: LuaBridgeRuntimeState, max_error_count: i64) -> bool
+requires max_error_count >= 0
+{
+    state.response_error_count >= max_error_count || state.rejected_operation_count > 0
+}
