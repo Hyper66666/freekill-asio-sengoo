@@ -1,0 +1,13 @@
+{
+  "host": "0.0.0.0",
+  "tcp_port": 9527,
+  "udp_port": 9528,
+  "runtime_name": "sengoo-prod",
+  "db_path": ".tmp/runtime_host/runtime.sqlite",
+  "thread_count": 8,
+  "tick_interval_ms": 20,
+  "task_budget": 2048,
+  "lua_script_path": ".tmp/runtime_host/runtime.lua",
+  "lua_command": "",
+  "drift_mode": "none"
+}

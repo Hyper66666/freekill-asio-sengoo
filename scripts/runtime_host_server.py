@@ -10,6 +10,7 @@ import re
 import signal
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 import zlib
@@ -24,6 +25,18 @@ try:
     PROTOBUF_AVAILABLE = True
 except Exception:  # pragma: no cover - optional dependency on deployment host
     PROTOBUF_AVAILABLE = False
+
+
+EXIT_OK = 0
+EXIT_CONFIG_ERROR = 2
+EXIT_RUNTIME_ERROR = 3
+
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_TCP_PORT = 9527
+DEFAULT_RUNTIME_NAME = "sengoo"
+DEFAULT_THREAD_COUNT = 4
+DEFAULT_TICK_INTERVAL_MS = 50
+DEFAULT_TASK_BUDGET = 256
 
 
 def build_protobuf_models():
@@ -696,48 +709,188 @@ def register_signal_handlers(host: RuntimeHost) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Deployable runtime host server")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--tcp-port", type=int, required=True)
-    parser.add_argument("--udp-port", type=int, default=0)
-    parser.add_argument("--runtime-name", default="sengoo")
-    parser.add_argument("--db-path", required=True)
-    parser.add_argument("--thread-count", type=int, default=4)
-    parser.add_argument("--tick-interval-ms", type=int, default=50)
-    parser.add_argument("--task-budget", type=int, default=256)
-    parser.add_argument("--lua-script-path", default="")
-    parser.add_argument("--lua-command", default="")
-    parser.add_argument("--drift-mode", choices=["none", "route", "flow", "protobuf"], default="none")
+    parser.add_argument("--config-json", default="")
+    parser.add_argument("--host", default=None)
+    parser.add_argument("--tcp-port", type=int, default=None)
+    parser.add_argument("--udp-port", type=int, default=None)
+    parser.add_argument("--runtime-name", default=None)
+    parser.add_argument("--db-path", default=None)
+    parser.add_argument("--thread-count", type=int, default=None)
+    parser.add_argument("--tick-interval-ms", type=int, default=None)
+    parser.add_argument("--task-budget", type=int, default=None)
+    parser.add_argument("--lua-script-path", default=None)
+    parser.add_argument("--lua-command", default=None)
+    parser.add_argument("--drift-mode", choices=["none", "route", "flow", "protobuf"], default=None)
+    parser.add_argument("--print-effective-config", action="store_true")
     return parser.parse_args()
 
 
-async def main_async() -> None:
-    args = parse_args()
-    tcp_port = int(args.tcp_port)
-    udp_port = int(args.udp_port) if int(args.udp_port) > 0 else tcp_port + 1
-    lua_script = Path(args.lua_script_path) if args.lua_script_path else None
+def _read_config_json(config_json_path: str) -> Dict[str, object]:
+    if not config_json_path:
+        return {}
+    path = Path(config_json_path)
+    if not path.exists():
+        raise ValueError(f"config json not found: {path}")
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid config json: {exc}") from exc
+    if not isinstance(loaded, dict):
+        raise ValueError("config json root must be an object")
+    return loaded
+
+
+def _coalesce(cli_value, config_value, default_value):
+    if cli_value is not None:
+        return cli_value
+    if config_value is not None:
+        return config_value
+    return default_value
+
+
+def _coerce_int(name: str, value) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be an integer")
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+
+
+def resolve_settings(args: argparse.Namespace) -> Dict[str, object]:
+    cfg = _read_config_json(str(args.config_json or "").strip())
+
+    host = _coalesce(args.host, cfg.get("host"), DEFAULT_HOST)
+    if not isinstance(host, str) or not host.strip():
+        raise ValueError("host must be a non-empty string")
+    host = host.strip()
+
+    runtime_name = _coalesce(args.runtime_name, cfg.get("runtime_name"), DEFAULT_RUNTIME_NAME)
+    if not isinstance(runtime_name, str) or not runtime_name.strip():
+        raise ValueError("runtime_name must be a non-empty string")
+    runtime_name = runtime_name.strip()
+
+    db_path_raw = _coalesce(args.db_path, cfg.get("db_path"), ".tmp/runtime_host/runtime.sqlite")
+    if not isinstance(db_path_raw, str) or not db_path_raw.strip():
+        raise ValueError("db_path must be a non-empty string")
+    db_path = Path(db_path_raw.strip())
+
+    tcp_port = _coerce_int("tcp_port", _coalesce(args.tcp_port, cfg.get("tcp_port"), DEFAULT_TCP_PORT))
+    if tcp_port <= 0 or tcp_port > 65535:
+        raise ValueError("tcp_port must be in range 1..65535")
+
+    udp_port_raw = _coalesce(args.udp_port, cfg.get("udp_port"), 0)
+    udp_port = _coerce_int("udp_port", udp_port_raw)
+    if udp_port <= 0:
+        udp_port = tcp_port + 1
+    if udp_port <= 0 or udp_port > 65535:
+        raise ValueError("udp_port must be in range 1..65535")
+    if udp_port == tcp_port:
+        raise ValueError("udp_port must not be the same as tcp_port")
+
+    thread_count = _coerce_int("thread_count", _coalesce(args.thread_count, cfg.get("thread_count"), DEFAULT_THREAD_COUNT))
+    tick_interval_ms = _coerce_int(
+        "tick_interval_ms",
+        _coalesce(args.tick_interval_ms, cfg.get("tick_interval_ms"), DEFAULT_TICK_INTERVAL_MS),
+    )
+    task_budget = _coerce_int("task_budget", _coalesce(args.task_budget, cfg.get("task_budget"), DEFAULT_TASK_BUDGET))
+    if thread_count <= 0:
+        raise ValueError("thread_count must be > 0")
+    if tick_interval_ms <= 0:
+        raise ValueError("tick_interval_ms must be > 0")
+    if task_budget <= 0:
+        raise ValueError("task_budget must be > 0")
+
+    lua_script_raw = _coalesce(args.lua_script_path, cfg.get("lua_script_path"), "")
+    if lua_script_raw is None:
+        lua_script_path = None
+    elif not isinstance(lua_script_raw, str):
+        raise ValueError("lua_script_path must be a string")
+    elif lua_script_raw.strip():
+        lua_script_path = Path(lua_script_raw.strip())
+    else:
+        lua_script_path = None
+
+    lua_command = _coalesce(args.lua_command, cfg.get("lua_command"), "")
+    if not isinstance(lua_command, str):
+        raise ValueError("lua_command must be a string")
+    lua_command = lua_command.strip()
+
+    drift_mode = _coalesce(args.drift_mode, cfg.get("drift_mode"), "none")
+    if drift_mode not in {"none", "route", "flow", "protobuf"}:
+        raise ValueError("drift_mode must be one of: none, route, flow, protobuf")
+
+    return {
+        "host": host,
+        "tcp_port": tcp_port,
+        "udp_port": udp_port,
+        "runtime_name": runtime_name,
+        "db_path": db_path,
+        "thread_count": thread_count,
+        "tick_interval_ms": tick_interval_ms,
+        "task_budget": task_budget,
+        "lua_script_path": lua_script_path,
+        "lua_command": lua_command,
+        "drift_mode": drift_mode,
+        "config_json": str(args.config_json or "").strip(),
+    }
+
+
+def effective_config_view(settings: Dict[str, object]) -> Dict[str, object]:
+    return {
+        "host": settings["host"],
+        "tcp_port": settings["tcp_port"],
+        "udp_port": settings["udp_port"],
+        "runtime_name": settings["runtime_name"],
+        "db_path": str(settings["db_path"]),
+        "thread_count": settings["thread_count"],
+        "tick_interval_ms": settings["tick_interval_ms"],
+        "task_budget": settings["task_budget"],
+        "lua_script_path": "" if settings["lua_script_path"] is None else str(settings["lua_script_path"]),
+        "lua_command": settings["lua_command"],
+        "drift_mode": settings["drift_mode"],
+        "config_json": settings["config_json"],
+    }
+
+
+async def main_async(settings: Dict[str, object]) -> None:
     host = RuntimeHost(
-        host=args.host,
-        tcp_port=tcp_port,
-        udp_port=udp_port,
-        runtime_name=args.runtime_name,
-        db_path=Path(args.db_path),
-        thread_count=int(args.thread_count),
-        tick_interval_ms=int(args.tick_interval_ms),
-        task_budget=int(args.task_budget),
-        lua_script_path=lua_script,
-        lua_command=args.lua_command,
-        drift_mode=args.drift_mode,
+        host=str(settings["host"]),
+        tcp_port=int(settings["tcp_port"]),
+        udp_port=int(settings["udp_port"]),
+        runtime_name=str(settings["runtime_name"]),
+        db_path=Path(str(settings["db_path"])),
+        thread_count=int(settings["thread_count"]),
+        tick_interval_ms=int(settings["tick_interval_ms"]),
+        task_budget=int(settings["task_budget"]),
+        lua_script_path=settings["lua_script_path"],
+        lua_command=str(settings["lua_command"]),
+        drift_mode=str(settings["drift_mode"]),
     )
     register_signal_handlers(host)
     await host.run()
 
 
-def main() -> None:
+def main() -> int:
+    args = parse_args()
     try:
-        asyncio.run(main_async())
+        settings = resolve_settings(args)
+    except ValueError as exc:
+        print(f"runtime_host_config_error: {exc}", file=sys.stderr, flush=True)
+        return EXIT_CONFIG_ERROR
+
+    if args.print_effective_config:
+        print(json.dumps(effective_config_view(settings), separators=(",", ":")), flush=True)
+
+    try:
+        asyncio.run(main_async(settings))
+        return EXIT_OK
     except KeyboardInterrupt:
-        pass
+        return EXIT_OK
+    except Exception as exc:  # pylint: disable=broad-except
+        print(f"runtime_host_runtime_error: {exc}", file=sys.stderr, flush=True)
+        return EXIT_RUNTIME_ERROR
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

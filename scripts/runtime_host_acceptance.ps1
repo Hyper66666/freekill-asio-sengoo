@@ -15,6 +15,12 @@ param(
   [string]$LiveSmokeReportPath = ".tmp/runtime_host/runtime_host_live_smoke_report.json",
 
   [Parameter(Mandatory = $false)]
+  [string]$ConfigSmokeScriptPath = "scripts/runtime_host_config_smoke.ps1",
+
+  [Parameter(Mandatory = $false)]
+  [string]$ConfigSmokeReportPath = ".tmp/runtime_host/runtime_host_config_smoke_report.json",
+
+  [Parameter(Mandatory = $false)]
   [switch]$IncludeSoak,
 
   [Parameter(Mandatory = $false)]
@@ -48,6 +54,9 @@ if (-not (Test-Path $AckReplayScriptPath)) {
 }
 if (-not (Test-Path $LiveSmokeScriptPath)) {
   throw "live smoke script not found: $LiveSmokeScriptPath"
+}
+if (-not (Test-Path $ConfigSmokeScriptPath)) {
+  throw "config smoke script not found: $ConfigSmokeScriptPath"
 }
 if ($IncludeSoak -and -not (Test-Path $SoakScriptPath)) {
   throw "soak script not found: $SoakScriptPath"
@@ -115,6 +124,18 @@ if (-not (Test-Path $LiveSmokeReportPath)) {
 $liveSmokeReport = Get-Content -Raw $LiveSmokeReportPath | ConvertFrom-Json
 $liveSmokeOk = [bool]$liveSmokeReport.pass
 
+powershell -NoProfile -ExecutionPolicy Bypass -File $ConfigSmokeScriptPath -OutputPath $ConfigSmokeReportPath | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  throw "runtime host config smoke failed"
+}
+
+if (-not (Test-Path $ConfigSmokeReportPath)) {
+  throw "missing runtime host config smoke report: $ConfigSmokeReportPath"
+}
+
+$configSmokeReport = Get-Content -Raw $ConfigSmokeReportPath | ConvertFrom-Json
+$configSmokeOk = [bool]$configSmokeReport.pass
+
 $soakExecuted = [bool]$IncludeSoak
 $soakOk = $true
 $soakReportResolvedPath = ""
@@ -133,7 +154,7 @@ if ($IncludeSoak) {
   $soakReportResolvedPath = (Resolve-Path $SoakReportPath).Path
 }
 
-$overallOk = $ackHealthOk -and $liveSmokeOk -and $soakOk
+$overallOk = $ackHealthOk -and $liveSmokeOk -and $configSmokeOk -and $soakOk
 
 $summary = [ordered]@{
   generated_at_utc = (Get-Date).ToUniversalTime().ToString("o")
@@ -152,6 +173,13 @@ $summary = [ordered]@{
     report_path = (Resolve-Path $LiveSmokeReportPath).Path
     tcp_port = [int64]$liveSmokeReport.tcp_port
     udp_port = [int64]$liveSmokeReport.udp_port
+  }
+  config_smoke = [ordered]@{
+    pass = $configSmokeOk
+    report_path = (Resolve-Path $ConfigSmokeReportPath).Path
+    runtime_name = [string]$configSmokeReport.runtime_name
+    tcp_port = [int64]$configSmokeReport.tcp_port
+    udp_port = [int64]$configSmokeReport.udp_port
   }
   soak = [ordered]@{
     executed = $soakExecuted
