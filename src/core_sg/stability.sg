@@ -25,3 +25,590 @@ requires total_iterations >= 0 && passed_iterations >= 0
 {
     total_iterations > 0 && passed_iterations == total_iterations
 }
+
+def default_event_loop_tick_interval_ms() -> i64
+ensures result == 50
+{
+    50
+}
+
+def default_event_loop_task_budget() -> i64
+ensures result == 256
+{
+    256
+}
+
+def normalize_event_loop_tick_interval_ms(candidate_ms: i64, fallback_ms: i64) -> i64
+requires fallback_ms > 0
+ensures result > 0
+{
+    if candidate_ms > 0 {
+        candidate_ms
+    } else {
+        fallback_ms
+    }
+}
+
+def normalize_event_loop_task_budget(candidate_budget: i64, fallback_budget: i64) -> i64
+requires fallback_budget > 0
+ensures result > 0
+{
+    if candidate_budget > 0 {
+        candidate_budget
+    } else {
+        fallback_budget
+    }
+}
+
+struct EventLoopRuntimeState {
+    io_context_running: bool,
+    loop_started: bool,
+    stop_requested: bool,
+    tick_interval_ms: i64,
+    task_budget: i64,
+    pending_async_task_count: i64,
+    dispatched_async_task_count: i64,
+    completed_async_task_count: i64,
+    failed_async_task_count: i64,
+    poll_cycle_count: i64,
+    completion_handler_count: i64,
+    error_count: i64,
+    timer_armed: bool,
+    timer_tick_count: i64,
+    timer_fire_count: i64,
+    timer_miss_count: i64,
+    rejected_operation_count: i64,
+}
+
+struct EventLoopTransitionResult {
+    state: EventLoopRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_event_loop_runtime_state(
+    tick_interval_ms: i64,
+    task_budget: i64,
+) -> EventLoopRuntimeState
+requires tick_interval_ms > 0 && task_budget > 0
+{
+    EventLoopRuntimeState {
+        io_context_running: false,
+        loop_started: false,
+        stop_requested: false,
+        tick_interval_ms: tick_interval_ms,
+        task_budget: task_budget,
+        pending_async_task_count: 0,
+        dispatched_async_task_count: 0,
+        completed_async_task_count: 0,
+        failed_async_task_count: 0,
+        poll_cycle_count: 0,
+        completion_handler_count: 0,
+        error_count: 0,
+        timer_armed: false,
+        timer_tick_count: 0,
+        timer_fire_count: 0,
+        timer_miss_count: 0,
+        rejected_operation_count: 0,
+    }
+}
+
+def apply_event_loop_start(state: EventLoopRuntimeState) -> EventLoopTransitionResult
+{
+    if state.io_context_running {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: state.io_context_running,
+                loop_started: state.loop_started,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: state.timer_armed,
+                timer_tick_count: state.timer_tick_count,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 8601,
+        }
+    } else {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: true,
+                loop_started: true,
+                stop_requested: false,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: state.timer_armed,
+                timer_tick_count: state.timer_tick_count,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_event_loop_arm_timer(
+    state: EventLoopRuntimeState,
+    requested_interval_ms: i64,
+    fallback_interval_ms: i64,
+) -> EventLoopTransitionResult
+requires fallback_interval_ms > 0
+{
+    if !state.io_context_running {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: state.io_context_running,
+                loop_started: state.loop_started,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: state.timer_armed,
+                timer_tick_count: state.timer_tick_count,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 8602,
+        }
+    } else {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: state.io_context_running,
+                loop_started: state.loop_started,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: normalize_event_loop_tick_interval_ms(requested_interval_ms, fallback_interval_ms),
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: true,
+                timer_tick_count: state.timer_tick_count,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_event_loop_schedule_async_task(
+    state: EventLoopRuntimeState,
+    allow_enqueue: bool,
+) -> EventLoopTransitionResult
+{
+    if !state.io_context_running {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: state.io_context_running,
+                loop_started: state.loop_started,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: state.timer_armed,
+                timer_tick_count: state.timer_tick_count,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 8603,
+        }
+    } else if !allow_enqueue || state.pending_async_task_count >= state.task_budget {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: state.io_context_running,
+                loop_started: state.loop_started,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: state.timer_armed,
+                timer_tick_count: state.timer_tick_count,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 8604,
+        }
+    } else {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: state.io_context_running,
+                loop_started: state.loop_started,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count + 1,
+                dispatched_async_task_count: state.dispatched_async_task_count + 1,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: state.timer_armed,
+                timer_tick_count: state.timer_tick_count,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_event_loop_poll(
+    state: EventLoopRuntimeState,
+    completion_handlers: i64,
+    completed_async_tasks: i64,
+    failed_async_tasks: i64,
+    had_error: bool,
+) -> EventLoopTransitionResult
+requires completion_handlers >= 0 && completed_async_tasks >= 0 && failed_async_tasks >= 0
+{
+    if !state.io_context_running {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: state.io_context_running,
+                loop_started: state.loop_started,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: state.timer_armed,
+                timer_tick_count: state.timer_tick_count,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 8605,
+        }
+    } else {
+        let settled_tasks = completed_async_tasks + failed_async_tasks;
+        let next_pending = if settled_tasks >= state.pending_async_task_count {
+            0
+        } else {
+            state.pending_async_task_count - settled_tasks
+        };
+        let next_error_count = if had_error {
+            state.error_count + 1
+        } else {
+            state.error_count
+        };
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: state.io_context_running,
+                loop_started: state.loop_started,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: next_pending,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count + completed_async_tasks,
+                failed_async_task_count: state.failed_async_task_count + failed_async_tasks,
+                poll_cycle_count: state.poll_cycle_count + 1,
+                completion_handler_count: state.completion_handler_count + completion_handlers,
+                error_count: next_error_count,
+                timer_armed: state.timer_armed,
+                timer_tick_count: state.timer_tick_count,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: !had_error,
+            reason_code: if had_error { 8606 } else { 0 },
+        }
+    }
+}
+
+def apply_event_loop_timer_tick(
+    state: EventLoopRuntimeState,
+    timer_ready: bool,
+) -> EventLoopTransitionResult
+{
+    if !state.io_context_running {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: state.io_context_running,
+                loop_started: state.loop_started,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: state.timer_armed,
+                timer_tick_count: state.timer_tick_count,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 8605,
+        }
+    } else if !state.timer_armed {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: state.io_context_running,
+                loop_started: state.loop_started,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: state.timer_armed,
+                timer_tick_count: state.timer_tick_count + 1,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count + 1,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 8607,
+        }
+    } else if timer_ready {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: state.io_context_running,
+                loop_started: state.loop_started,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: state.timer_armed,
+                timer_tick_count: state.timer_tick_count + 1,
+                timer_fire_count: state.timer_fire_count + 1,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    } else {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: state.io_context_running,
+                loop_started: state.loop_started,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: state.timer_armed,
+                timer_tick_count: state.timer_tick_count + 1,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count + 1,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: false,
+            reason_code: 8608,
+        }
+    }
+}
+
+def apply_event_loop_request_stop(
+    state: EventLoopRuntimeState,
+    signal_code: i64,
+) -> EventLoopTransitionResult
+requires signal_code >= 0
+{
+    if !state.io_context_running {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: state.io_context_running,
+                loop_started: state.loop_started,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: state.timer_armed,
+                timer_tick_count: state.timer_tick_count,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 8609,
+        }
+    } else {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: false,
+                loop_started: state.loop_started,
+                stop_requested: true,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: if signal_code > 0 { state.error_count } else { state.error_count + 1 },
+                timer_armed: false,
+                timer_tick_count: state.timer_tick_count,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def apply_event_loop_finalize_stop(state: EventLoopRuntimeState) -> EventLoopTransitionResult
+{
+    if state.io_context_running {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: state.io_context_running,
+                loop_started: state.loop_started,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: state.pending_async_task_count,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: state.timer_armed,
+                timer_tick_count: state.timer_tick_count,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count + 1,
+            },
+            applied: false,
+            reason_code: 8610,
+        }
+    } else {
+        EventLoopTransitionResult {
+            state: EventLoopRuntimeState {
+                io_context_running: false,
+                loop_started: false,
+                stop_requested: state.stop_requested,
+                tick_interval_ms: state.tick_interval_ms,
+                task_budget: state.task_budget,
+                pending_async_task_count: 0,
+                dispatched_async_task_count: state.dispatched_async_task_count,
+                completed_async_task_count: state.completed_async_task_count,
+                failed_async_task_count: state.failed_async_task_count,
+                poll_cycle_count: state.poll_cycle_count,
+                completion_handler_count: state.completion_handler_count,
+                error_count: state.error_count,
+                timer_armed: false,
+                timer_tick_count: state.timer_tick_count,
+                timer_fire_count: state.timer_fire_count,
+                timer_miss_count: state.timer_miss_count,
+                rejected_operation_count: state.rejected_operation_count,
+            },
+            applied: true,
+            reason_code: 0,
+        }
+    }
+}
+
+def should_event_loop_backpressure(state: EventLoopRuntimeState, max_pending_tasks: i64) -> bool
+requires max_pending_tasks >= 0
+{
+    state.pending_async_task_count >= max_pending_tasks
+}
+
+def can_event_loop_schedule_async(state: EventLoopRuntimeState) -> bool
+{
+    state.io_context_running && state.pending_async_task_count < state.task_budget
+}
+
+def should_event_loop_continue(
+    state: EventLoopRuntimeState,
+    max_poll_cycles: i64,
+    max_error_count: i64,
+) -> bool
+requires max_poll_cycles >= 0 && max_error_count >= 0
+{
+    state.io_context_running
+        && !state.stop_requested
+        && state.poll_cycle_count < max_poll_cycles
+        && state.error_count <= max_error_count
+}
