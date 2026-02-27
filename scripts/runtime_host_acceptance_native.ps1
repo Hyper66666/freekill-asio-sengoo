@@ -24,7 +24,16 @@ param(
   [int]$ProbeWarmupMilliseconds = 1500,
 
   [Parameter(Mandatory = $false)]
-  [int]$ProbeConnectTimeoutMs = 600
+  [int]$ProbeConnectTimeoutMs = 600,
+
+  [Parameter(Mandatory = $false)]
+  [bool]$IncludePackageCompatibility = $true,
+
+  [Parameter(Mandatory = $false)]
+  [string]$PackageCompatibilityScriptPath = "scripts/check_package_compatibility_native.ps1",
+
+  [Parameter(Mandatory = $false)]
+  [string]$PackageCompatibilityReportPath = ".tmp/runtime_host/package_compatibility_report.json"
 )
 
 $ErrorActionPreference = "Stop"
@@ -78,6 +87,25 @@ if ($LASTEXITCODE -ne 0) {
   throw "native release build failed"
 }
 
+$packageCompatExecuted = [bool]$IncludePackageCompatibility
+$packageCompatOk = $true
+$packageCompat = $null
+if ($packageCompatExecuted) {
+  if (-not (Test-Path $PackageCompatibilityScriptPath)) {
+    throw "package compatibility script not found: $PackageCompatibilityScriptPath"
+  }
+  powershell -NoProfile -ExecutionPolicy Bypass -File $PackageCompatibilityScriptPath `
+    -OutputPath $PackageCompatibilityReportPath | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw "package compatibility check failed"
+  }
+  if (-not (Test-Path $PackageCompatibilityReportPath)) {
+    throw "missing package compatibility report: $PackageCompatibilityReportPath"
+  }
+  $packageCompat = Get-Content -Raw $PackageCompatibilityReportPath | ConvertFrom-Json
+  $packageCompatOk = [bool]$packageCompat.pass
+}
+
 $platformRoot = Join-Path $ReleaseRoot $PlatformTag
 $manifestPath = Join-Path $platformRoot "manifest.json"
 $checksumPath = Join-Path $platformRoot "checksums.sha256"
@@ -114,7 +142,7 @@ $manifestHash = [string]$manifest.binary_sha256
 $actualHash = (Get-FileHash -Algorithm SHA256 -Path $binaryPath).Hash.ToLowerInvariant()
 $hashMatch = ($manifestHash.ToLowerInvariant() -eq $actualHash)
 
-$overallOk = ($smokeExitCode -eq 0) -and $probeRunning -and $probePortOpen -and $hashMatch
+$overallOk = ($smokeExitCode -eq 0) -and $probeRunning -and $probePortOpen -and $hashMatch -and $packageCompatOk
 
 $summary = [ordered]@{
   generated_at_utc = (Get-Date).ToUniversalTime().ToString("o")
@@ -136,6 +164,12 @@ $summary = [ordered]@{
     probe_tcp_port = $ProbeTcpPort
     probe_port_open = $probePortOpen
     hash_match = $hashMatch
+  }
+  package_compatibility = [ordered]@{
+    executed = $packageCompatExecuted
+    ok = $packageCompatOk
+    report_path = if ($packageCompatExecuted) { (Resolve-Path $PackageCompatibilityReportPath).Path } else { "" }
+    report = $packageCompat
   }
 }
 

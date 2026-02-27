@@ -41,6 +41,7 @@ $platformRoot = Join-Path $ReleaseRoot $PlatformTag
 $binDir = Join-Path $platformRoot "bin"
 $configDir = Join-Path $platformRoot "config"
 $scriptsDir = Join-Path $platformRoot "scripts"
+$packagesDir = Join-Path $platformRoot "packages"
 $tmpBuildDir = ".tmp/native_build"
 Ensure-Dir $tmpBuildDir
 $inputLeaf = Split-Path -Leaf $InputPath
@@ -51,6 +52,7 @@ Ensure-Dir $platformRoot
 Ensure-Dir $binDir
 Ensure-Dir $configDir
 Ensure-Dir $scriptsDir
+Ensure-Dir $packagesDir
 
 $effectiveBinaryName = if (-not [string]::IsNullOrWhiteSpace($BinaryName)) {
   $BinaryName
@@ -102,6 +104,20 @@ $startScriptPath = ""
 $healthcheckScriptPath = ""
 $installScriptPath = ""
 $uninstallScriptPath = ""
+$packageManagerScriptPath = ""
+$packageCompatScriptPath = ""
+$packageSmokeScriptPath = ""
+$luaLifecycleScriptPath = ""
+$luaLifecycleSmokeScriptPath = ""
+$protobufRpcRegressionScriptPath = ""
+$protobufRpcFixturesPath = ""
+$extensionMatrixScriptPath = ""
+$replacementGateScriptPath = ""
+$abiHookInventoryScriptPath = ""
+$abiHookCompatMapScriptPath = ""
+$abiHookValidateScriptPath = ""
+$packageInitSqlPath = ""
+$packageRegistryPath = ""
 if ($PlatformTag -like "windows*") {
   if (Test-Path "scripts/start_runtime_host_native.ps1") {
     $startScriptPath = Join-Path $scriptsDir "start_runtime_host.ps1"
@@ -136,6 +152,75 @@ if ($PlatformTag -like "windows*") {
     $uninstallScriptPath = Join-Path $scriptsDir "uninstall_runtime_host_service.sh"
     Copy-Item "scripts/uninstall_runtime_host_systemd_native.sh" $uninstallScriptPath -Force
   }
+}
+
+if (Test-Path "scripts/package_manager_native.ps1") {
+  $packageManagerScriptPath = Join-Path $scriptsDir "package_manager.ps1"
+  Copy-Item "scripts/package_manager_native.ps1" $packageManagerScriptPath -Force
+}
+if (Test-Path "scripts/check_package_compatibility_native.ps1") {
+  $packageCompatScriptPath = Join-Path $scriptsDir "check_package_compatibility.ps1"
+  Copy-Item "scripts/check_package_compatibility_native.ps1" $packageCompatScriptPath -Force
+}
+if (Test-Path "scripts/package_manager_smoke_native.ps1") {
+  $packageSmokeScriptPath = Join-Path $scriptsDir "package_manager_smoke.ps1"
+  Copy-Item "scripts/package_manager_smoke_native.ps1" $packageSmokeScriptPath -Force
+}
+if (Test-Path "scripts/lua_extension_lifecycle_native.ps1") {
+  $luaLifecycleScriptPath = Join-Path $scriptsDir "lua_extension_lifecycle.ps1"
+  Copy-Item "scripts/lua_extension_lifecycle_native.ps1" $luaLifecycleScriptPath -Force
+}
+if (Test-Path "scripts/lua_extension_lifecycle_smoke_native.ps1") {
+  $luaLifecycleSmokeScriptPath = Join-Path $scriptsDir "lua_extension_lifecycle_smoke.ps1"
+  Copy-Item "scripts/lua_extension_lifecycle_smoke_native.ps1" $luaLifecycleSmokeScriptPath -Force
+}
+if (Test-Path "scripts/run_protobuf_rpc_regression_native.ps1") {
+  $protobufRpcRegressionScriptPath = Join-Path $scriptsDir "run_protobuf_rpc_regression.ps1"
+  Copy-Item "scripts/run_protobuf_rpc_regression_native.ps1" $protobufRpcRegressionScriptPath -Force
+}
+if (Test-Path "scripts/run_extension_matrix_native.ps1") {
+  $extensionMatrixScriptPath = Join-Path $scriptsDir "run_extension_matrix.ps1"
+  Copy-Item "scripts/run_extension_matrix_native.ps1" $extensionMatrixScriptPath -Force
+}
+if (Test-Path "scripts/runtime_host_replacement_gate_native.ps1") {
+  $replacementGateScriptPath = Join-Path $scriptsDir "runtime_host_replacement_gate.ps1"
+  Copy-Item "scripts/runtime_host_replacement_gate_native.ps1" $replacementGateScriptPath -Force
+}
+if (Test-Path "scripts/fixtures/protobuf_rpc_regression_cases.json") {
+  $fixturesDir = Join-Path $scriptsDir "fixtures"
+  Ensure-Dir $fixturesDir
+  $protobufRpcFixturesPath = Join-Path $fixturesDir "protobuf_rpc_regression_cases.json"
+  Copy-Item "scripts/fixtures/protobuf_rpc_regression_cases.json" $protobufRpcFixturesPath -Force
+}
+if (Test-Path "scripts/build_extension_abi_hook_inventory.ps1") {
+  $abiHookInventoryScriptPath = Join-Path $scriptsDir "build_extension_abi_hook_inventory.ps1"
+  Copy-Item "scripts/build_extension_abi_hook_inventory.ps1" $abiHookInventoryScriptPath -Force
+}
+if (Test-Path "scripts/build_extension_abi_hook_compat_map.ps1") {
+  $abiHookCompatMapScriptPath = Join-Path $scriptsDir "build_extension_abi_hook_compat_map.ps1"
+  Copy-Item "scripts/build_extension_abi_hook_compat_map.ps1" $abiHookCompatMapScriptPath -Force
+}
+if (Test-Path "scripts/validate_extension_abi_hook_compatibility.ps1") {
+  $abiHookValidateScriptPath = Join-Path $scriptsDir "validate_extension_abi_hook_compatibility.ps1"
+  Copy-Item "scripts/validate_extension_abi_hook_compatibility.ps1" $abiHookValidateScriptPath -Force
+}
+if (Test-Path "packages/init.sql") {
+  $packageInitSqlPath = Join-Path $packagesDir "init.sql"
+  Copy-Item "packages/init.sql" $packageInitSqlPath -Force
+} else {
+  $packageInitSqlPath = Join-Path $packagesDir "init.sql"
+  @"
+CREATE TABLE IF NOT EXISTS packages (
+  name VARCHAR(128),
+  url VARCHAR(255),
+  hash CHAR(40),
+  enabled BOOLEAN
+);
+"@ | Set-Content -Path $packageInitSqlPath -Encoding UTF8
+}
+$packageRegistryPath = Join-Path $packagesDir "packages.registry.json"
+if (-not (Test-Path $packageRegistryPath)) {
+  "[]" | Set-Content -Path $packageRegistryPath -Encoding UTF8
 }
 
 $manifest = [ordered]@{
@@ -175,6 +260,68 @@ $manifest = [ordered]@{
   } else {
     (Resolve-Path $uninstallScriptPath).Path
   }
+  package_manager_script_path = if ([string]::IsNullOrWhiteSpace($packageManagerScriptPath)) {
+    ""
+  } else {
+    (Resolve-Path $packageManagerScriptPath).Path
+  }
+  package_compatibility_script_path = if ([string]::IsNullOrWhiteSpace($packageCompatScriptPath)) {
+    ""
+  } else {
+    (Resolve-Path $packageCompatScriptPath).Path
+  }
+  package_smoke_script_path = if ([string]::IsNullOrWhiteSpace($packageSmokeScriptPath)) {
+    ""
+  } else {
+    (Resolve-Path $packageSmokeScriptPath).Path
+  }
+  lua_lifecycle_script_path = if ([string]::IsNullOrWhiteSpace($luaLifecycleScriptPath)) {
+    ""
+  } else {
+    (Resolve-Path $luaLifecycleScriptPath).Path
+  }
+  lua_lifecycle_smoke_script_path = if ([string]::IsNullOrWhiteSpace($luaLifecycleSmokeScriptPath)) {
+    ""
+  } else {
+    (Resolve-Path $luaLifecycleSmokeScriptPath).Path
+  }
+  protobuf_rpc_regression_script_path = if ([string]::IsNullOrWhiteSpace($protobufRpcRegressionScriptPath)) {
+    ""
+  } else {
+    (Resolve-Path $protobufRpcRegressionScriptPath).Path
+  }
+  protobuf_rpc_fixtures_path = if ([string]::IsNullOrWhiteSpace($protobufRpcFixturesPath)) {
+    ""
+  } else {
+    (Resolve-Path $protobufRpcFixturesPath).Path
+  }
+  extension_matrix_script_path = if ([string]::IsNullOrWhiteSpace($extensionMatrixScriptPath)) {
+    ""
+  } else {
+    (Resolve-Path $extensionMatrixScriptPath).Path
+  }
+  replacement_gate_script_path = if ([string]::IsNullOrWhiteSpace($replacementGateScriptPath)) {
+    ""
+  } else {
+    (Resolve-Path $replacementGateScriptPath).Path
+  }
+  abi_hook_inventory_script_path = if ([string]::IsNullOrWhiteSpace($abiHookInventoryScriptPath)) {
+    ""
+  } else {
+    (Resolve-Path $abiHookInventoryScriptPath).Path
+  }
+  abi_hook_compat_map_script_path = if ([string]::IsNullOrWhiteSpace($abiHookCompatMapScriptPath)) {
+    ""
+  } else {
+    (Resolve-Path $abiHookCompatMapScriptPath).Path
+  }
+  abi_hook_validate_script_path = if ([string]::IsNullOrWhiteSpace($abiHookValidateScriptPath)) {
+    ""
+  } else {
+    (Resolve-Path $abiHookValidateScriptPath).Path
+  }
+  package_init_sql_path = (Resolve-Path $packageInitSqlPath).Path
+  package_registry_path = (Resolve-Path $packageRegistryPath).Path
 }
 
 $manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $manifestOut -Encoding UTF8

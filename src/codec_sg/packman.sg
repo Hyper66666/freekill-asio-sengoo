@@ -1,3 +1,105 @@
+def packman_reason_ok() -> i64
+ensures result == 0
+{
+    0
+}
+
+def packman_reason_unknown_failure() -> i64
+ensures result == 9300
+{
+    9300
+}
+
+def packman_reason_disable_core_forbidden() -> i64
+ensures result == 9301
+{
+    9301
+}
+
+def packman_reason_upgrade_partial_failed() -> i64
+ensures result == 9302
+{
+    9302
+}
+
+def packman_reason_missing_required_argument() -> i64
+ensures result == 9303
+{
+    9303
+}
+
+def packman_reason_invalid_package_name() -> i64
+ensures result == 9304
+{
+    9304
+}
+
+def packman_reason_git_unavailable() -> i64
+ensures result == 9305
+{
+    9305
+}
+
+def packman_reason_package_missing() -> i64
+ensures result == 9306
+{
+    9306
+}
+
+def packman_command_install() -> i64
+ensures result == 1
+{
+    1
+}
+
+def packman_command_remove() -> i64
+ensures result == 2
+{
+    2
+}
+
+def packman_command_pkgs() -> i64
+ensures result == 3
+{
+    3
+}
+
+def packman_command_syncpkgs() -> i64
+ensures result == 4
+{
+    4
+}
+
+def packman_command_enable() -> i64
+ensures result == 5
+{
+    5
+}
+
+def packman_command_disable() -> i64
+ensures result == 6
+{
+    6
+}
+
+def packman_command_upgrade() -> i64
+ensures result == 7
+{
+    7
+}
+
+def packman_command_init() -> i64
+ensures result == 8
+{
+    8
+}
+
+def is_valid_packman_command_code(command_code: i64) -> bool
+requires command_code >= 0
+{
+    command_code >= packman_command_install() && command_code <= packman_command_init()
+}
+
 def can_disable_pack(is_core_pack: bool) -> bool
 {
     !is_core_pack
@@ -20,4 +122,603 @@ def should_refresh_summary(enabled_pack_count: i64) -> bool
 requires enabled_pack_count >= 0
 {
     enabled_pack_count > 0
+}
+
+def clamp_subtract_non_negative(current: i64, delta: i64) -> i64
+requires current >= 0 && delta >= 0
+ensures result >= 0
+{
+    if delta >= current {
+        0
+    } else {
+        current - delta
+    }
+}
+
+def should_reject_packman_install_reason_code(has_url: bool, git_available: bool, resolved_name: bool) -> i64
+ensures result == packman_reason_ok()
+    || result == packman_reason_missing_required_argument()
+    || result == packman_reason_git_unavailable()
+    || result == packman_reason_invalid_package_name()
+{
+    if !has_url {
+        packman_reason_missing_required_argument()
+    } else if !git_available {
+        packman_reason_git_unavailable()
+    } else if !resolved_name {
+        packman_reason_invalid_package_name()
+    } else {
+        packman_reason_ok()
+    }
+}
+
+def should_reject_packman_remove_reason_code(has_name: bool, package_exists: bool) -> i64
+ensures result == packman_reason_ok()
+    || result == packman_reason_missing_required_argument()
+    || result == packman_reason_package_missing()
+{
+    if !has_name {
+        packman_reason_missing_required_argument()
+    } else if !package_exists {
+        packman_reason_package_missing()
+    } else {
+        packman_reason_ok()
+    }
+}
+
+def should_reject_packman_enable_reason_code(has_name: bool, package_exists: bool) -> i64
+ensures result == packman_reason_ok()
+    || result == packman_reason_missing_required_argument()
+    || result == packman_reason_package_missing()
+{
+    if !has_name {
+        packman_reason_missing_required_argument()
+    } else if !package_exists {
+        packman_reason_package_missing()
+    } else {
+        packman_reason_ok()
+    }
+}
+
+def should_reject_packman_disable_reason_code(has_name: bool, is_core_pack: bool, package_exists: bool) -> i64
+ensures result == packman_reason_ok()
+    || result == packman_reason_missing_required_argument()
+    || result == packman_reason_disable_core_forbidden()
+    || result == packman_reason_package_missing()
+{
+    if !has_name {
+        packman_reason_missing_required_argument()
+    } else if is_core_pack {
+        packman_reason_disable_core_forbidden()
+    } else if !package_exists {
+        packman_reason_package_missing()
+    } else {
+        packman_reason_ok()
+    }
+}
+
+def should_reject_packman_upgrade_reason_code(git_available: bool, had_partial_failure: bool) -> i64
+ensures result == packman_reason_ok()
+    || result == packman_reason_git_unavailable()
+    || result == packman_reason_upgrade_partial_failed()
+{
+    if !git_available {
+        packman_reason_git_unavailable()
+    } else if had_partial_failure {
+        packman_reason_upgrade_partial_failed()
+    } else {
+        packman_reason_ok()
+    }
+}
+
+struct PackmanRuntimeState {
+    total_pack_count: i64,
+    enabled_pack_count: i64,
+    disabled_pack_count: i64,
+    last_command_code: i64,
+    last_reason_code: i64,
+    rejected_operation_count: i64,
+    mutation_count: i64,
+}
+
+struct PackmanTransitionResult {
+    state: PackmanRuntimeState,
+    applied: bool,
+    reason_code: i64,
+}
+
+def new_packman_runtime_state() -> PackmanRuntimeState
+{
+    PackmanRuntimeState {
+        total_pack_count: 0,
+        enabled_pack_count: 0,
+        disabled_pack_count: 0,
+        last_command_code: 0,
+        last_reason_code: packman_reason_ok(),
+        rejected_operation_count: 0,
+        mutation_count: 0,
+    }
+}
+
+def apply_packman_install(
+    state: PackmanRuntimeState,
+    has_url: bool,
+    git_available: bool,
+    resolved_name: bool,
+    tracked_before: bool,
+    enabled_before: bool,
+) -> PackmanTransitionResult
+requires !enabled_before || tracked_before
+{
+    let reject_code = should_reject_packman_install_reason_code(has_url, git_available, resolved_name);
+    if reject_code != packman_reason_ok() {
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: state.enabled_pack_count,
+                disabled_pack_count: state.disabled_pack_count,
+                last_command_code: packman_command_install(),
+                last_reason_code: reject_code,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                mutation_count: state.mutation_count,
+            },
+            applied: false,
+            reason_code: reject_code,
+        }
+    } else {
+        let next_total = if tracked_before { state.total_pack_count } else { state.total_pack_count + 1 };
+        let next_enabled = if tracked_before && enabled_before {
+            state.enabled_pack_count
+        } else {
+            state.enabled_pack_count + 1
+        };
+        let next_disabled = if tracked_before && !enabled_before {
+            clamp_subtract_non_negative(state.disabled_pack_count, 1)
+        } else {
+            state.disabled_pack_count
+        };
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: next_total,
+                enabled_pack_count: next_enabled,
+                disabled_pack_count: next_disabled,
+                last_command_code: packman_command_install(),
+                last_reason_code: packman_reason_ok(),
+                rejected_operation_count: state.rejected_operation_count,
+                mutation_count: state.mutation_count + 1,
+            },
+            applied: true,
+            reason_code: packman_reason_ok(),
+        }
+    }
+}
+
+def apply_packman_remove(
+    state: PackmanRuntimeState,
+    has_name: bool,
+    package_exists: bool,
+    was_enabled: bool,
+) -> PackmanTransitionResult
+{
+    let reject_code = should_reject_packman_remove_reason_code(has_name, package_exists);
+    if reject_code != packman_reason_ok() {
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: state.enabled_pack_count,
+                disabled_pack_count: state.disabled_pack_count,
+                last_command_code: packman_command_remove(),
+                last_reason_code: reject_code,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                mutation_count: state.mutation_count,
+            },
+            applied: false,
+            reason_code: reject_code,
+        }
+    } else {
+        let next_enabled = if was_enabled {
+            clamp_subtract_non_negative(state.enabled_pack_count, 1)
+        } else {
+            state.enabled_pack_count
+        };
+        let next_disabled = if was_enabled {
+            state.disabled_pack_count
+        } else {
+            clamp_subtract_non_negative(state.disabled_pack_count, 1)
+        };
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: clamp_subtract_non_negative(state.total_pack_count, 1),
+                enabled_pack_count: next_enabled,
+                disabled_pack_count: next_disabled,
+                last_command_code: packman_command_remove(),
+                last_reason_code: packman_reason_ok(),
+                rejected_operation_count: state.rejected_operation_count,
+                mutation_count: state.mutation_count + 1,
+            },
+            applied: true,
+            reason_code: packman_reason_ok(),
+        }
+    }
+}
+
+def apply_packman_enable(
+    state: PackmanRuntimeState,
+    has_name: bool,
+    package_exists: bool,
+    already_enabled: bool,
+) -> PackmanTransitionResult
+{
+    let reject_code = should_reject_packman_enable_reason_code(has_name, package_exists);
+    if reject_code != packman_reason_ok() {
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: state.enabled_pack_count,
+                disabled_pack_count: state.disabled_pack_count,
+                last_command_code: packman_command_enable(),
+                last_reason_code: reject_code,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                mutation_count: state.mutation_count,
+            },
+            applied: false,
+            reason_code: reject_code,
+        }
+    } else {
+        let next_enabled = if already_enabled { state.enabled_pack_count } else { state.enabled_pack_count + 1 };
+        let next_disabled = if already_enabled {
+            state.disabled_pack_count
+        } else {
+            clamp_subtract_non_negative(state.disabled_pack_count, 1)
+        };
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: next_enabled,
+                disabled_pack_count: next_disabled,
+                last_command_code: packman_command_enable(),
+                last_reason_code: packman_reason_ok(),
+                rejected_operation_count: state.rejected_operation_count,
+                mutation_count: state.mutation_count + 1,
+            },
+            applied: true,
+            reason_code: packman_reason_ok(),
+        }
+    }
+}
+
+def apply_packman_disable(
+    state: PackmanRuntimeState,
+    has_name: bool,
+    is_core_pack: bool,
+    package_exists: bool,
+    already_disabled: bool,
+) -> PackmanTransitionResult
+{
+    let reject_code = should_reject_packman_disable_reason_code(has_name, is_core_pack, package_exists);
+    if reject_code != packman_reason_ok() {
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: state.enabled_pack_count,
+                disabled_pack_count: state.disabled_pack_count,
+                last_command_code: packman_command_disable(),
+                last_reason_code: reject_code,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                mutation_count: state.mutation_count,
+            },
+            applied: false,
+            reason_code: reject_code,
+        }
+    } else {
+        let next_enabled = if already_disabled {
+            state.enabled_pack_count
+        } else {
+            clamp_subtract_non_negative(state.enabled_pack_count, 1)
+        };
+        let next_disabled = if already_disabled { state.disabled_pack_count } else { state.disabled_pack_count + 1 };
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: next_enabled,
+                disabled_pack_count: next_disabled,
+                last_command_code: packman_command_disable(),
+                last_reason_code: packman_reason_ok(),
+                rejected_operation_count: state.rejected_operation_count,
+                mutation_count: state.mutation_count + 1,
+            },
+            applied: true,
+            reason_code: packman_reason_ok(),
+        }
+    }
+}
+
+def apply_packman_upgrade(
+    state: PackmanRuntimeState,
+    git_available: bool,
+    had_partial_failure: bool,
+) -> PackmanTransitionResult
+{
+    let reject_code = should_reject_packman_upgrade_reason_code(git_available, had_partial_failure);
+    if reject_code != packman_reason_ok() {
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: state.enabled_pack_count,
+                disabled_pack_count: state.disabled_pack_count,
+                last_command_code: packman_command_upgrade(),
+                last_reason_code: reject_code,
+                rejected_operation_count: state.rejected_operation_count + 1,
+                mutation_count: state.mutation_count,
+            },
+            applied: false,
+            reason_code: reject_code,
+        }
+    } else {
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: state.enabled_pack_count,
+                disabled_pack_count: state.disabled_pack_count,
+                last_command_code: packman_command_upgrade(),
+                last_reason_code: packman_reason_ok(),
+                rejected_operation_count: state.rejected_operation_count,
+                mutation_count: state.mutation_count + 1,
+            },
+            applied: true,
+            reason_code: packman_reason_ok(),
+        }
+    }
+}
+
+def apply_packman_syncpkgs(
+    state: PackmanRuntimeState,
+    scanned_pack_count: i64,
+    scanned_enabled_pack_count: i64,
+) -> PackmanTransitionResult
+requires scanned_pack_count >= 0 && scanned_enabled_pack_count >= 0 && scanned_enabled_pack_count <= scanned_pack_count
+{
+    PackmanTransitionResult {
+        state: PackmanRuntimeState {
+            total_pack_count: scanned_pack_count,
+            enabled_pack_count: scanned_enabled_pack_count,
+            disabled_pack_count: scanned_pack_count - scanned_enabled_pack_count,
+            last_command_code: packman_command_syncpkgs(),
+            last_reason_code: packman_reason_ok(),
+            rejected_operation_count: state.rejected_operation_count,
+            mutation_count: state.mutation_count + 1,
+        },
+        applied: true,
+        reason_code: packman_reason_ok(),
+    }
+}
+
+def apply_packman_pkgs(state: PackmanRuntimeState) -> PackmanTransitionResult
+{
+    PackmanTransitionResult {
+        state: PackmanRuntimeState {
+            total_pack_count: state.total_pack_count,
+            enabled_pack_count: state.enabled_pack_count,
+            disabled_pack_count: state.disabled_pack_count,
+            last_command_code: packman_command_pkgs(),
+            last_reason_code: packman_reason_ok(),
+            rejected_operation_count: state.rejected_operation_count,
+            mutation_count: state.mutation_count,
+        },
+        applied: true,
+        reason_code: packman_reason_ok(),
+    }
+}
+
+def apply_packman_init(state: PackmanRuntimeState) -> PackmanTransitionResult
+{
+    PackmanTransitionResult {
+        state: PackmanRuntimeState {
+            total_pack_count: state.total_pack_count,
+            enabled_pack_count: state.enabled_pack_count,
+            disabled_pack_count: state.disabled_pack_count,
+            last_command_code: packman_command_init(),
+            last_reason_code: packman_reason_ok(),
+            rejected_operation_count: state.rejected_operation_count,
+            mutation_count: state.mutation_count,
+        },
+        applied: true,
+        reason_code: packman_reason_ok(),
+    }
+}
+
+def apply_packman_download_new_pack(
+    state: PackmanRuntimeState,
+    has_url: bool,
+    git_available: bool,
+    resolved_name: bool,
+    tracked_before: bool,
+    enabled_before: bool,
+) -> PackmanTransitionResult
+requires !enabled_before || tracked_before
+{
+    apply_packman_install(
+        state,
+        has_url,
+        git_available,
+        resolved_name,
+        tracked_before,
+        enabled_before,
+    )
+}
+
+def apply_packman_destroy(state: PackmanRuntimeState) -> PackmanTransitionResult
+{
+    PackmanTransitionResult {
+        state: PackmanRuntimeState {
+            total_pack_count: 0,
+            enabled_pack_count: 0,
+            disabled_pack_count: 0,
+            last_command_code: packman_command_remove(),
+            last_reason_code: packman_reason_ok(),
+            rejected_operation_count: state.rejected_operation_count,
+            mutation_count: state.mutation_count + 1,
+        },
+        applied: true,
+        reason_code: packman_reason_ok(),
+    }
+}
+
+def apply_packman_load_summary(state: PackmanRuntimeState) -> PackmanTransitionResult
+{
+    apply_packman_pkgs(state)
+}
+
+def apply_packman_refresh_summary(state: PackmanRuntimeState) -> PackmanTransitionResult
+{
+    apply_packman_pkgs(state)
+}
+
+def apply_packman_force_checkout_master(
+    state: PackmanRuntimeState,
+    git_available: bool,
+    checkout_ok: bool,
+) -> PackmanTransitionResult
+{
+    if !git_available {
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: state.enabled_pack_count,
+                disabled_pack_count: state.disabled_pack_count,
+                last_command_code: packman_command_upgrade(),
+                last_reason_code: packman_reason_git_unavailable(),
+                rejected_operation_count: state.rejected_operation_count + 1,
+                mutation_count: state.mutation_count,
+            },
+            applied: false,
+            reason_code: packman_reason_git_unavailable(),
+        }
+    } else if !checkout_ok {
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: state.enabled_pack_count,
+                disabled_pack_count: state.disabled_pack_count,
+                last_command_code: packman_command_upgrade(),
+                last_reason_code: packman_reason_unknown_failure(),
+                rejected_operation_count: state.rejected_operation_count + 1,
+                mutation_count: state.mutation_count,
+            },
+            applied: false,
+            reason_code: packman_reason_unknown_failure(),
+        }
+    } else {
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: state.enabled_pack_count,
+                disabled_pack_count: state.disabled_pack_count,
+                last_command_code: packman_command_upgrade(),
+                last_reason_code: packman_reason_ok(),
+                rejected_operation_count: state.rejected_operation_count,
+                mutation_count: state.mutation_count + 1,
+            },
+            applied: true,
+            reason_code: packman_reason_ok(),
+        }
+    }
+}
+
+def apply_packman_list_packages(state: PackmanRuntimeState) -> PackmanTransitionResult
+{
+    apply_packman_pkgs(state)
+}
+
+def apply_packman_update_pack(
+    state: PackmanRuntimeState,
+    git_available: bool,
+    update_ok: bool,
+) -> PackmanTransitionResult
+{
+    if !git_available {
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: state.enabled_pack_count,
+                disabled_pack_count: state.disabled_pack_count,
+                last_command_code: packman_command_upgrade(),
+                last_reason_code: packman_reason_git_unavailable(),
+                rejected_operation_count: state.rejected_operation_count + 1,
+                mutation_count: state.mutation_count,
+            },
+            applied: false,
+            reason_code: packman_reason_git_unavailable(),
+        }
+    } else if !update_ok {
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: state.enabled_pack_count,
+                disabled_pack_count: state.disabled_pack_count,
+                last_command_code: packman_command_upgrade(),
+                last_reason_code: packman_reason_upgrade_partial_failed(),
+                rejected_operation_count: state.rejected_operation_count + 1,
+                mutation_count: state.mutation_count,
+            },
+            applied: false,
+            reason_code: packman_reason_upgrade_partial_failed(),
+        }
+    } else {
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: state.enabled_pack_count,
+                disabled_pack_count: state.disabled_pack_count,
+                last_command_code: packman_command_upgrade(),
+                last_reason_code: packman_reason_ok(),
+                rejected_operation_count: state.rejected_operation_count,
+                mutation_count: state.mutation_count + 1,
+            },
+            applied: true,
+            reason_code: packman_reason_ok(),
+        }
+    }
+}
+
+def apply_packman_sync_commit_hash_to_database(
+    state: PackmanRuntimeState,
+    sync_ok: bool,
+) -> PackmanTransitionResult
+{
+    if !sync_ok {
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: state.enabled_pack_count,
+                disabled_pack_count: state.disabled_pack_count,
+                last_command_code: packman_command_syncpkgs(),
+                last_reason_code: packman_reason_unknown_failure(),
+                rejected_operation_count: state.rejected_operation_count + 1,
+                mutation_count: state.mutation_count,
+            },
+            applied: false,
+            reason_code: packman_reason_unknown_failure(),
+        }
+    } else {
+        PackmanTransitionResult {
+            state: PackmanRuntimeState {
+                total_pack_count: state.total_pack_count,
+                enabled_pack_count: state.enabled_pack_count,
+                disabled_pack_count: state.disabled_pack_count,
+                last_command_code: packman_command_syncpkgs(),
+                last_reason_code: packman_reason_ok(),
+                rejected_operation_count: state.rejected_operation_count,
+                mutation_count: state.mutation_count + 1,
+            },
+            applied: true,
+            reason_code: packman_reason_ok(),
+        }
+    }
+}
+
+def should_packman_alert(state: PackmanRuntimeState, max_reject_count: i64) -> bool
+requires max_reject_count >= 0
+{
+    state.rejected_operation_count > max_reject_count
 }

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "description": "Native protobuf/rpc compatibility replay cases for runtime host",
+  "cases": [
+    {
+      "id": "tcp-protobuf-echo-ping",
+      "kind": "protobuf",
+      "transport": "tcp",
+      "port": 9527,
+      "request_hex": "0a03666f6f10071801",
+      "expected_response_hex": "0a03666f6f10071801",
+      "semantic_mode": "echo_ping"
+    },
+    {
+      "id": "udp-protobuf-echo-ping",
+      "kind": "protobuf",
+      "transport": "udp",
+      "port": 9528,
+      "request_hex": "0a03666f6f10071801",
+      "expected_response_hex": "0a03666f6f10071801",
+      "semantic_mode": "echo_ping"
+    },
+    {
+      "id": "tcp-rpc-text-echo",
+      "kind": "rpc_text",
+      "transport": "tcp",
+      "port": 9527,
+      "request_utf8": "M1_CONN_PING\n",
+      "expected_response_utf8": "M1_CONN_PING\n"
+    }
+  ]
+}

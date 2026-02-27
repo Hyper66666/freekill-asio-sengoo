@@ -1,0 +1,9 @@
+/*
+!.gitignore
+!init.sql
+!packages.registry.json
+!freekill-core/
+!freekill-core/lua/
+!freekill-core/lua/server/
+!freekill-core/lua/server/rpc/
+!freekill-core/lua/server/rpc/entry.lua
