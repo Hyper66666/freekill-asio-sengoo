@@ -30,12 +30,26 @@ function Ensure-Dir([string]$path) {
   }
 }
 
+function Resolve-AbsolutePath([string]$path, [string]$baseDir) {
+  if ([System.IO.Path]::IsPathRooted($path)) {
+    return [System.IO.Path]::GetFullPath($path)
+  }
+  return [System.IO.Path]::GetFullPath((Join-Path $baseDir $path))
+}
+
 if (-not (Test-Path $SgcPath)) {
   throw "sgc not found: $SgcPath"
 }
 if (-not (Test-Path $InputPath)) {
   throw "input source not found: $InputPath"
 }
+
+$scriptDir = if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+  (Resolve-Path $PSScriptRoot).Path
+} else {
+  (Get-Location).Path
+}
+$repoRoot = Resolve-AbsolutePath -path ".." -baseDir $scriptDir
 
 $platformRoot = Join-Path $ReleaseRoot $PlatformTag
 $binDir = Join-Path $platformRoot "bin"
@@ -64,7 +78,23 @@ $effectiveBinaryName = if (-not [string]::IsNullOrWhiteSpace($BinaryName)) {
 
 $outputBinary = Join-Path $binDir $effectiveBinaryName
 
-& $SgcPath build $tempInputPath -O 3 --contract-checks off --low-memory --frontend-jobs 1 --force-rebuild -o $outputBinary
+$customRuntimePath = Resolve-AbsolutePath -path "runtime/runtime.c" -baseDir $repoRoot
+$originalSengooRuntime = [string]$env:SENGOO_RUNTIME
+$usingCustomRuntime = $false
+if (Test-Path $customRuntimePath) {
+  $env:SENGOO_RUNTIME = $customRuntimePath
+  $usingCustomRuntime = $true
+}
+
+try {
+  & $SgcPath build $tempInputPath -O 3 --contract-checks off --low-memory --frontend-jobs 1 --force-rebuild -o $outputBinary
+} finally {
+  if ([string]::IsNullOrWhiteSpace($originalSengooRuntime)) {
+    Remove-Item Env:SENGOO_RUNTIME -ErrorAction SilentlyContinue
+  } else {
+    $env:SENGOO_RUNTIME = $originalSengooRuntime
+  }
+}
 if ($LASTEXITCODE -ne 0) {
   throw "native build failed for $InputPath"
 }
@@ -244,6 +274,7 @@ $manifest = [ordered]@{
   platform = $PlatformTag
   build_time_utc = (Get-Date).ToUniversalTime().ToString("o")
   source = $InputPath
+  custom_runtime_path = if ($usingCustomRuntime) { $customRuntimePath } else { "" }
   binary_path = (Resolve-Path $outputBinary).Path
   binary_sha256 = $hash
   smoke_exit_code = $smokeExitCode

@@ -38,6 +38,7 @@
 
 说明：
 - native 主路径默认不依赖 Python。
+- `scripts/build_native_release.ps1` 会优先使用仓库内 `runtime/runtime.c`（包含实时 `print` 刷新修复）。
 - 如果 `sgc` 不能自动定位 runtime C 文件，可设置：
 
 ```powershell
@@ -74,6 +75,42 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check_package_compat
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_runtime_host_native.ps1 -Detached
+```
+
+前台直接看实时输出（不静默）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_runtime_host_native.ps1
+```
+
+前台日志为文本格式（接近原服风格）：
+- `[YYYY-MM-DD HH:MM:SS][INFO][SERVER] server is starting`
+- `[YYYY-MM-DD HH:MM:SS][INFO][NET] server is ready to listen on [0.0.0.0]:9527`
+- `[YYYY-MM-DD HH:MM:SS][INFO][NET] udp is ready to listen on [0.0.0.0]:9528`
+- `[YYYY-MM-DD HH:MM:SS][INFO][NET] client <ip>:<port> connected ...`
+- `[YYYY-MM-DD HH:MM:SS][INFO][NET] client disconnected ...`
+
+客户端首次 TCP 连接后，服务端会主动下发扩展同步首包：
+
+```json
+{"event":"extension_sync","registry":[{"name":"freekill-core","enabled":true,"builtin":true}]}
+```
+
+说明：
+- 默认读取 `packages/packages.registry.json`。
+- 自动去除 UTF-8 BOM，避免客户端解析异常。
+- 当注册表为空/缺失时，若存在 `packages/freekill-core/lua/server/rpc/entry.lua`，会回退同步 `freekill-core` 基线扩展信息。
+
+默认会写入日志文件（可直接排障）：
+- 事件日志：`.tmp/runtime_host/native_runtime.events.log`
+- 标准输出：`.tmp/runtime_host/native_runtime.stdout.log`
+- 错误输出：`.tmp/runtime_host/native_runtime.stderr.log`
+
+查看日志：
+
+```powershell
+Get-Content .tmp/runtime_host/native_runtime.events.log -Tail 50
+Get-Content .tmp/runtime_host/native_runtime.stderr.log -Tail 50
 ```
 
 6. 健康检查。
