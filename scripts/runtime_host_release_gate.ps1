@@ -81,6 +81,12 @@ param(
   [string]$ExtensionMatrixReportPath = ".tmp/runtime_host/extension_matrix_native_report.json",
 
   [Parameter(Mandatory = $false)]
+  [string]$ExtensionMatrixTargetsPath = "scripts/fixtures/extension_matrix_targets.json",
+
+  [Parameter(Mandatory = $false)]
+  [switch]$UseLocalExtensionMatrixFixture,
+
+  [Parameter(Mandatory = $false)]
   [string]$OutputPath = ".tmp/runtime_host/runtime_host_release_gate.json"
 )
 
@@ -230,8 +236,16 @@ if ($extensionMatrixExecuted) {
   if (-not (Test-Path $ExtensionMatrixScriptPath)) {
     throw "extension matrix script not found: $ExtensionMatrixScriptPath"
   }
-  powershell -NoProfile -ExecutionPolicy Bypass -File $ExtensionMatrixScriptPath `
-    -OutputPath $ExtensionMatrixReportPath | Out-Null
+  $matrixArgs = @(
+    "-NoProfile", "-ExecutionPolicy", "Bypass",
+    "-File", $ExtensionMatrixScriptPath,
+    "-TargetsPath", $ExtensionMatrixTargetsPath,
+    "-OutputPath", $ExtensionMatrixReportPath
+  )
+  if ([bool]$UseLocalExtensionMatrixFixture) {
+    $matrixArgs += "-UseLocalFixture"
+  }
+  & powershell @matrixArgs | Out-Null
   if ($LASTEXITCODE -ne 0) {
     throw "release gate failed: extension matrix returned non-zero"
   }

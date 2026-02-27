@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "description": "Fill targets[] with real extension repositories to enable real-target matrix mode",
+  "targets": []
+}

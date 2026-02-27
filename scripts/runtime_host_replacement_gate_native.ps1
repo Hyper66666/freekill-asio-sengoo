@@ -9,6 +9,12 @@ param(
   [switch]$EnforceAbiHookCompatibility = $true,
 
   [Parameter(Mandatory = $false)]
+  [string]$ExtensionMatrixTargetsPath = "scripts/fixtures/extension_matrix_targets.json",
+
+  [Parameter(Mandatory = $false)]
+  [switch]$UseLocalExtensionMatrixFixture,
+
+  [Parameter(Mandatory = $false)]
   [string]$OutputPath = ".tmp/runtime_host/runtime_host_replacement_gate_native.json"
 )
 
@@ -59,10 +65,15 @@ $gateArgs = @(
   "-SgcPath",
   $SgcPath,
   "-SoakDurationSeconds",
-  $SoakDurationSeconds
+  $SoakDurationSeconds,
+  "-ExtensionMatrixTargetsPath",
+  $ExtensionMatrixTargetsPath
 )
 if ([bool]$EnforceAbiHookCompatibility) {
   $gateArgs += "-EnforceAbiHookCompatibility"
+}
+if ([bool]$UseLocalExtensionMatrixFixture) {
+  $gateArgs += "-UseLocalExtensionMatrixFixture"
 }
 $gateReportPath = ".tmp/runtime_host/runtime_host_release_gate.json"
 if (Test-Path $gateReportPath) {

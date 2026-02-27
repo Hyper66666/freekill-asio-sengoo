@@ -120,6 +120,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_protobuf_rpc_reg
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_extension_matrix_native.ps1
 ```
 
+真实仓库模式（推荐）：
+- 编辑 `scripts/fixtures/extension_matrix_targets.json`，填入真实扩展仓库 `name/url`。
+- 然后执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_extension_matrix_native.ps1 -TargetsPath scripts/fixtures/extension_matrix_targets.json
+```
+
+离线本地夹具模式：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_extension_matrix_native.ps1 -UseLocalFixture
+```
+
 - ABI/Hook 校验（默认只出报告；加 `-Enforce` 才会阻断）：
 
 ```powershell
@@ -137,6 +151,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_soak_na
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_release_gate.ps1 -SoakDurationSeconds 60
+```
+
+指定真实扩展矩阵目标清单：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_release_gate.ps1 -SoakDurationSeconds 60 -ExtensionMatrixTargetsPath scripts/fixtures/extension_matrix_targets.json
 ```
 
 - 最终替换门禁（启用 ABI/Hook enforce）：
@@ -180,6 +200,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_replace
 - `scripts/build_extension_abi_hook_compat_map.ps1`
 - `scripts/validate_extension_abi_hook_compatibility.ps1`
 - `scripts/fixtures/protobuf_rpc_regression_cases.json`
+- `scripts/fixtures/extension_matrix_targets.json`
+- `scripts/fixtures/extension_matrix_targets.example.json`
 - `packages/init.sql`
 - `packages/packages.registry.json`
 - `manifest.json`

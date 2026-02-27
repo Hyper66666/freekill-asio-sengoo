@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "description": "Real extension repositories for native extension matrix replay",
+  "targets": [
+    {
+      "name": "freekill-core",
+      "url": "https://github.com/<org>/freekill-core.git",
+      "supports_disable": false,
+      "priority": "P0"
+    },
+    {
+      "name": "example-extension",
+      "url": "https://github.com/<org>/example-extension.git",
+      "supports_disable": true,
+      "priority": "P1"
+    }
+  ]
+}

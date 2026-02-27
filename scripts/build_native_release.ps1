@@ -112,6 +112,8 @@ $luaLifecycleSmokeScriptPath = ""
 $protobufRpcRegressionScriptPath = ""
 $protobufRpcFixturesPath = ""
 $extensionMatrixScriptPath = ""
+$extensionMatrixTargetsPath = ""
+$extensionMatrixTargetsExamplePath = ""
 $replacementGateScriptPath = ""
 $abiHookInventoryScriptPath = ""
 $abiHookCompatMapScriptPath = ""
@@ -191,6 +193,18 @@ if (Test-Path "scripts/fixtures/protobuf_rpc_regression_cases.json") {
   Ensure-Dir $fixturesDir
   $protobufRpcFixturesPath = Join-Path $fixturesDir "protobuf_rpc_regression_cases.json"
   Copy-Item "scripts/fixtures/protobuf_rpc_regression_cases.json" $protobufRpcFixturesPath -Force
+}
+if (Test-Path "scripts/fixtures/extension_matrix_targets.json") {
+  $fixturesDir = Join-Path $scriptsDir "fixtures"
+  Ensure-Dir $fixturesDir
+  $extensionMatrixTargetsPath = Join-Path $fixturesDir "extension_matrix_targets.json"
+  Copy-Item "scripts/fixtures/extension_matrix_targets.json" $extensionMatrixTargetsPath -Force
+}
+if (Test-Path "scripts/fixtures/extension_matrix_targets.example.json") {
+  $fixturesDir = Join-Path $scriptsDir "fixtures"
+  Ensure-Dir $fixturesDir
+  $extensionMatrixTargetsExamplePath = Join-Path $fixturesDir "extension_matrix_targets.example.json"
+  Copy-Item "scripts/fixtures/extension_matrix_targets.example.json" $extensionMatrixTargetsExamplePath -Force
 }
 if (Test-Path "scripts/build_extension_abi_hook_inventory.ps1") {
   $abiHookInventoryScriptPath = Join-Path $scriptsDir "build_extension_abi_hook_inventory.ps1"
@@ -299,6 +313,16 @@ $manifest = [ordered]@{
     ""
   } else {
     (Resolve-Path $extensionMatrixScriptPath).Path
+  }
+  extension_matrix_targets_path = if ([string]::IsNullOrWhiteSpace($extensionMatrixTargetsPath)) {
+    ""
+  } else {
+    (Resolve-Path $extensionMatrixTargetsPath).Path
+  }
+  extension_matrix_targets_example_path = if ([string]::IsNullOrWhiteSpace($extensionMatrixTargetsExamplePath)) {
+    ""
+  } else {
+    (Resolve-Path $extensionMatrixTargetsExamplePath).Path
   }
   replacement_gate_script_path = if ([string]::IsNullOrWhiteSpace($replacementGateScriptPath)) {
     ""
