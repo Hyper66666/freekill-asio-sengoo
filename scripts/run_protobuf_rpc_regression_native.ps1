@@ -277,6 +277,51 @@ function Test-ProtobufSemantic([string]$mode, [byte[]]$requestBytes, [byte[]]$re
   }
 }
 
+function Try-StripExtensionSyncPrelude([System.Collections.Generic.List[byte]]$buffer) {
+  if ($null -eq $buffer -or $buffer.Count -eq 0) {
+    return [ordered]@{
+      complete = $false
+      stripped = $false
+    }
+  }
+
+  $snapshot = $buffer.ToArray()
+  if ($snapshot[0] -ne [byte][char]'{') {
+    return [ordered]@{
+      complete = $true
+      stripped = $false
+    }
+  }
+
+  $newline = [Array]::IndexOf($snapshot, [byte]10)
+  if ($newline -lt 0) {
+    return [ordered]@{
+      complete = $false
+      stripped = $false
+    }
+  }
+
+  $lineBytes = New-Object byte[] ($newline + 1)
+  [Array]::Copy($snapshot, 0, $lineBytes, 0, $newline + 1)
+  $lineText = [System.Text.Encoding]::UTF8.GetString($lineBytes)
+  if (-not $lineText.Contains('"event":"extension_sync"')) {
+    return [ordered]@{
+      complete = $true
+      stripped = $false
+    }
+  }
+
+  $buffer.Clear()
+  for ($i = $newline + 1; $i -lt $snapshot.Length; $i++) {
+    [void]$buffer.Add($snapshot[$i])
+  }
+
+  return [ordered]@{
+    complete = $true
+    stripped = $true
+  }
+}
+
 function Invoke-TcpCase([string]$targetHost, [int]$port, [byte[]]$requestBytes, [int]$readBytes, [int]$readTimeoutMs) {
   $client = [System.Net.Sockets.TcpClient]::new()
   try {
@@ -289,20 +334,43 @@ function Invoke-TcpCase([string]$targetHost, [int]$port, [byte[]]$requestBytes, 
     $stream.WriteTimeout = $readTimeoutMs
     $stream.Write($requestBytes, 0, $requestBytes.Length)
     $stream.Flush()
-    $response = New-Object byte[] $readBytes
-    $offset = 0
-    while ($offset -lt $readBytes) {
-      $read = $stream.Read($response, $offset, $readBytes - $offset)
+
+    $buffer = [System.Collections.Generic.List[byte]]::new()
+    $chunk = New-Object byte[] ([Math]::Max($readBytes, 512))
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($readTimeoutMs)
+    $preludeResolved = $false
+    while ((($buffer.Count -lt $readBytes) -or (-not $preludeResolved)) -and ([DateTime]::UtcNow -lt $deadline)) {
+      if (-not $stream.DataAvailable) {
+        Start-Sleep -Milliseconds 8
+        continue
+      }
+
+      $read = $stream.Read($chunk, 0, $chunk.Length)
       if ($read -le 0) {
         break
       }
-      $offset += $read
-    }
-    if ($offset -lt $readBytes) {
-      $truncated = New-Object byte[] $offset
-      if ($offset -gt 0) {
-        [Array]::Copy($response, 0, $truncated, 0, $offset)
+      for ($i = 0; $i -lt $read; $i++) {
+        [void]$buffer.Add($chunk[$i])
       }
+
+      if (-not $preludeResolved) {
+        $probe = Try-StripExtensionSyncPrelude -buffer $buffer
+        if ([bool]$probe.complete) {
+          $preludeResolved = $true
+        } elseif ($buffer.Count -ge ([Math]::Max($readBytes, 1024))) {
+          $preludeResolved = $true
+        }
+      }
+    }
+
+    if (-not $preludeResolved) {
+      [void](Try-StripExtensionSyncPrelude -buffer $buffer)
+    }
+
+    $response = $buffer.ToArray()
+    if ($response.Length -gt $readBytes) {
+      $truncated = New-Object byte[] $readBytes
+      [Array]::Copy($response, 0, $truncated, 0, $readBytes)
       return $truncated
     }
     return $response
