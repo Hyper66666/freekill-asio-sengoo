@@ -203,6 +203,40 @@ function Invoke-Lifecycle(
   return ($jsonText | ConvertFrom-Json)
 }
 
+function Resolve-LoadedEntryPath([object]$lifecycleReport, [string]$name) {
+  if ($null -eq $lifecycleReport) {
+    return ""
+  }
+  foreach ($ext in @($lifecycleReport.extensions)) {
+    if ([string]$ext.name -eq $name -and -not [string]::IsNullOrWhiteSpace([string]$ext.entry)) {
+      return [string]$ext.entry
+    }
+  }
+  return ""
+}
+
+function Select-CallHook([object]$loadReport) {
+  if ($null -eq $loadReport) {
+    return "ping"
+  }
+  $hooks = @()
+  if ($null -ne $loadReport.details) {
+    $hooks = @($loadReport.details.hooks)
+  }
+  foreach ($h in $hooks) {
+    if ([string]$h -eq "ping") {
+      return "ping"
+    }
+  }
+  foreach ($h in $hooks) {
+    $name = [string]$h
+    if (-not [string]::IsNullOrWhiteSpace($name)) {
+      return $name
+    }
+  }
+  return ""
+}
+
 $scriptDir = if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
   (Resolve-Path $PSScriptRoot).Path
 } else {
@@ -323,17 +357,34 @@ foreach ($ext in $extensions) {
       -expectedExits @(0) `
       -reportPath (Join-Path $reportsRoot ("21-load-{0}.json" -f $name))
 
-    $steps.call = Invoke-Lifecycle `
-      -scriptPath $resolvedLuaLifecycleScriptPath `
-      -packagesRoot $packagesRoot `
-      -statePath $luaStatePath `
-      -commandName "call" `
-      -name $name `
-      -hook "ping" `
-      -expectedExits @(0) `
-      -reportPath (Join-Path $reportsRoot ("22-call-{0}.json" -f $name))
+    $callHook = Select-CallHook -loadReport $steps.load
+    if ([string]::IsNullOrWhiteSpace($callHook)) {
+      $steps.call = [ordered]@{
+        generated_at_utc = (Get-Date).ToUniversalTime().ToString("o")
+        command = "call"
+        ok = $true
+        reason_code = 0
+        details = [ordered]@{
+          skipped = $true
+          skip_reason = "no discoverable top-level hook"
+        }
+      }
+    } else {
+      $steps.call = Invoke-Lifecycle `
+        -scriptPath $resolvedLuaLifecycleScriptPath `
+        -packagesRoot $packagesRoot `
+        -statePath $luaStatePath `
+        -commandName "call" `
+        -name $name `
+        -hook $callHook `
+        -expectedExits @(0) `
+        -reportPath (Join-Path $reportsRoot ("22-call-{0}.json" -f $name))
+    }
 
-    $entryPath = Join-Path $packagesRoot ("{0}/lua/server/rpc/entry.lua" -f $name)
+    $entryPath = Resolve-LoadedEntryPath -lifecycleReport $steps.load -name $name
+    if ([string]::IsNullOrWhiteSpace($entryPath) -or -not (Test-Path $entryPath)) {
+      throw ("resolved entry path missing for hot_reload: {0}" -f $name)
+    }
     Add-Content -Path $entryPath -Encoding UTF8 -Value "`n-- matrix hot reload marker"
 
     $steps.hot_reload = Invoke-Lifecycle `
