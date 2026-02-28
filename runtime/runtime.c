@@ -3430,6 +3430,7 @@ static void sg_sync_extension_bootstrap(const char* registry_json) {
     int loaded_count = 0;
     int reload_count = 0;
     int changed_any = 0;
+    int lua_runtime_available = sg_extension_bootstrap_check_lua_runtime();
 
     const char* cursor = registry_json;
     while (cursor != NULL && *cursor != '\0') {
@@ -3468,7 +3469,7 @@ static void sg_sync_extension_bootstrap(const char* registry_json) {
                 int changed = (!found_existing)
                     || strcmp(item->entry, entry) != 0
                     || strcmp(item->hash, hash) != 0
-                    || !item->loaded;
+                    || (!item->loaded && lua_runtime_available);
 
                 if (!found_existing) {
                     memset(item, 0, sizeof(*item));
@@ -3521,6 +3522,10 @@ static void sg_sync_extension_bootstrap(const char* registry_json) {
         );
     }
     g_extension_bootstrap_synced_once = 1;
+}
+
+static int sg_should_send_extension_sync_on_accept(void) {
+    return sg_parse_bool_env("SENGOO_EXTENSION_SYNC_ON_ACCEPT", 0);
 }
 
 static void sg_fill_registry_fallback(char* registry_json, size_t cap) {
@@ -3588,6 +3593,9 @@ static void sg_tick_extension_sync_refresh(void) {
 }
 
 static long long sg_send_extension_sync_payload(sg_socket_t conn) {
+    if (!sg_should_send_extension_sync_on_accept()) {
+        return 0;
+    }
     sg_prepare_extension_sync_payload();
     const char* cursor = g_extension_sync_payload;
     size_t remaining = strlen(g_extension_sync_payload);
@@ -4064,7 +4072,7 @@ long long sengoo_tcp_listener_accept(long long listener_handle) {
     long long sync_bytes = sg_send_extension_sync_payload(conn);
     if (sync_bytes > 0) {
         sg_logf("INFO", "EXT", "extension sync -> %s:%d bytes=%lld", peer_ip, (int)ntohs(peer_addr.sin_port), sync_bytes);
-    } else {
+    } else if (sync_bytes < 0) {
         sg_logf("WARN", "EXT", "extension sync send failed -> %s:%d", peer_ip, (int)ntohs(peer_addr.sin_port));
     }
     int network_delay_sent = 0;

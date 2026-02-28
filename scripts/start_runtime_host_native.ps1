@@ -33,10 +33,25 @@ param(
   [int]$DetachedProbeMilliseconds = 1200,
 
   [Parameter(Mandatory = $false)]
+  [int]$TcpPort = 0,
+
+  [Parameter(Mandatory = $false)]
+  [int]$UdpPort = 0,
+
+  [Parameter(Mandatory = $false)]
+  [switch]$UseSamePortForUdp,
+
+  [Parameter(Mandatory = $false)]
   [string]$ExtensionSyncRegistryPath = "",
 
   [Parameter(Mandatory = $false)]
-  [switch]$DisableAutoExtensionSyncRegistry
+  [switch]$DisableAutoExtensionSyncRegistry,
+
+  [Parameter(Mandatory = $false)]
+  [switch]$EnableRawExtensionSyncPrelude,
+
+  [Parameter(Mandatory = $false)]
+  [switch]$DisableNetworkDelayTest
 )
 
 $ErrorActionPreference = "Stop"
@@ -260,7 +275,7 @@ $logMode = if ([bool]$effectiveNoRedirectLogs) { "none" } else { "file" }
 Write-EventLogLine `
   -eventLogPath $resolvedEventLogPath `
   -level "INFO" `
-  -message ("launch_requested detached={0}; binary={1}; packages_root={2}; log_mode={3}" -f [bool]$Detached, $resolved, $resolvedPackagesRoot, $logMode)
+  -message ("launch_requested detached={0}; binary={1}; packages_root={2}; log_mode={3}; tcp_port={4}; udp_port={5}; raw_extension_sync={6}; network_delay={7}" -f [bool]$Detached, $resolved, $resolvedPackagesRoot, $logMode, [string]$env:SENGOO_TCP_PORT, [string]$env:SENGOO_UDP_PORT, [string]$env:SENGOO_EXTENSION_SYNC_ON_ACCEPT, [string]$env:SENGOO_AUTH_SEND_NETWORK_DELAY)
 
 if ($null -ne $extensionSyncRegistry) {
   Write-EventLogLine `
@@ -271,6 +286,43 @@ if ($null -ne $extensionSyncRegistry) {
 
 $originalExtensionRegistryEnv = [string]$env:SENGOO_EXTENSION_REGISTRY
 $originalCoreEntryEnv = [string]$env:SENGOO_EXTENSION_CORE_ENTRY
+$originalTcpPortEnv = [string]$env:SENGOO_TCP_PORT
+$originalUdpPortEnv = [string]$env:SENGOO_UDP_PORT
+$originalExtSyncOnAcceptEnv = [string]$env:SENGOO_EXTENSION_SYNC_ON_ACCEPT
+$originalAuthNetworkDelayEnv = [string]$env:SENGOO_AUTH_SEND_NETWORK_DELAY
+
+if ($TcpPort -lt 0 -or $TcpPort -gt 65535) {
+  throw "invalid TcpPort: $TcpPort (expected 1..65535, or 0 for default)"
+}
+if ($UdpPort -lt 0 -or $UdpPort -gt 65535) {
+  throw "invalid UdpPort: $UdpPort (expected 1..65535, or 0 for default)"
+}
+if ($TcpPort -gt 0) {
+  $env:SENGOO_TCP_PORT = [string]$TcpPort
+}
+if ($UseSamePortForUdp) {
+  $effectiveUdpPort = 9527
+  if ($UdpPort -gt 0) {
+    $effectiveUdpPort = $UdpPort
+  } elseif ($TcpPort -gt 0) {
+    $effectiveUdpPort = $TcpPort
+  } elseif (-not [string]::IsNullOrWhiteSpace([string]$env:SENGOO_TCP_PORT)) {
+    $parsedTcpPort = 0
+    if ([int]::TryParse([string]$env:SENGOO_TCP_PORT, [ref]$parsedTcpPort) -and $parsedTcpPort -ge 1 -and $parsedTcpPort -le 65535) {
+      $effectiveUdpPort = $parsedTcpPort
+    }
+  }
+  $env:SENGOO_UDP_PORT = [string]$effectiveUdpPort
+} elseif ($UdpPort -gt 0) {
+  $env:SENGOO_UDP_PORT = [string]$UdpPort
+}
+if ($EnableRawExtensionSyncPrelude) {
+  $env:SENGOO_EXTENSION_SYNC_ON_ACCEPT = "1"
+}
+if ($DisableNetworkDelayTest) {
+  $env:SENGOO_AUTH_SEND_NETWORK_DELAY = "0"
+}
+
 $resolvedCoreEntryPath = Join-Path $resolvedPackagesRoot "packages/freekill-core/lua/server/rpc/entry.lua"
 if (-not (Test-Path $resolvedCoreEntryPath)) {
   $resolvedCoreEntryPath = Join-Path $resolvedPackagesRoot "freekill-core/lua/server/rpc/entry.lua"
@@ -402,5 +454,25 @@ try {
     Remove-Item Env:SENGOO_EXTENSION_CORE_ENTRY -ErrorAction SilentlyContinue
   } else {
     $env:SENGOO_EXTENSION_CORE_ENTRY = $originalCoreEntryEnv
+  }
+  if ([string]::IsNullOrWhiteSpace($originalTcpPortEnv)) {
+    Remove-Item Env:SENGOO_TCP_PORT -ErrorAction SilentlyContinue
+  } else {
+    $env:SENGOO_TCP_PORT = $originalTcpPortEnv
+  }
+  if ([string]::IsNullOrWhiteSpace($originalUdpPortEnv)) {
+    Remove-Item Env:SENGOO_UDP_PORT -ErrorAction SilentlyContinue
+  } else {
+    $env:SENGOO_UDP_PORT = $originalUdpPortEnv
+  }
+  if ([string]::IsNullOrWhiteSpace($originalExtSyncOnAcceptEnv)) {
+    Remove-Item Env:SENGOO_EXTENSION_SYNC_ON_ACCEPT -ErrorAction SilentlyContinue
+  } else {
+    $env:SENGOO_EXTENSION_SYNC_ON_ACCEPT = $originalExtSyncOnAcceptEnv
+  }
+  if ([string]::IsNullOrWhiteSpace($originalAuthNetworkDelayEnv)) {
+    Remove-Item Env:SENGOO_AUTH_SEND_NETWORK_DELAY -ErrorAction SilentlyContinue
+  } else {
+    $env:SENGOO_AUTH_SEND_NETWORK_DELAY = $originalAuthNetworkDelayEnv
   }
 }
