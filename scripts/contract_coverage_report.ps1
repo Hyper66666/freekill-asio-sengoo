@@ -1,12 +1,12 @@
 param(
   [Parameter(Mandatory = $false)]
-  [string]$MapPath = "docs/MIGRATION_MAP.md",
+  [string]$MapPath = "scripts/fixtures/migration_map.md",
 
   [Parameter(Mandatory = $false)]
   [string]$LegacyRoot = "..",
 
   [Parameter(Mandatory = $false)]
-  [string]$OverridesPath = "docs/CONTRACT_COVERAGE_OVERRIDES.json",
+  [string]$OverridesPath = "scripts/fixtures/contract_coverage_overrides.json",
 
   [Parameter(Mandatory = $false)]
   [string]$JsonOutputPath = ".tmp/contract_coverage/contract_coverage_report.json",
@@ -164,7 +164,19 @@ function Resolve-RelativeToRoot([string]$root, [string]$relPath) {
 }
 
 if (-not (Test-Path $MapPath)) {
-  throw "Missing migration map: $MapPath"
+  $docsMapPath = "docs/MIGRATION_MAP.md"
+  if (Test-Path $docsMapPath) {
+    $MapPath = $docsMapPath
+  } else {
+    throw "Missing migration map: $MapPath"
+  }
+}
+
+if (-not (Test-Path $OverridesPath)) {
+  $docsOverridesPath = "docs/CONTRACT_COVERAGE_OVERRIDES.json"
+  if (Test-Path $docsOverridesPath) {
+    $OverridesPath = $docsOverridesPath
+  }
 }
 
 $legacyRootAbs = (Resolve-Path $LegacyRoot).Path

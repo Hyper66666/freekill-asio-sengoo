@@ -194,6 +194,9 @@ static int g_extension_bootstrap_lua_missing_logged = 0;
 static int g_extension_bootstrap_synced_once = 0;
 static int g_extension_bootstrap_lua_checked = 0;
 static int g_extension_bootstrap_lua_available = 0;
+static long long g_extension_sync_refresh_last_ms = 0;
+static unsigned long g_extension_sync_payload_fingerprint = 0;
+static int g_extension_shutdown_hooks_emitted = 0;
 static int g_auth_whitelist_missing_logged = 0;
 static int g_auth_ban_words_missing_logged = 0;
 static int g_auth_rsa_decrypt_error_logged = 0;
@@ -2621,6 +2624,16 @@ static void sg_trim_trailing_whitespace(char* text) {
     }
 }
 
+static unsigned long sg_hash_text(const char* text) {
+    const unsigned char* p = (const unsigned char*)(text == NULL ? "" : text);
+    unsigned long h = 5381UL;
+    while (*p != 0) {
+        h = ((h << 5) + h) + (unsigned long)(*p);
+        p += 1;
+    }
+    return h;
+}
+
 static int sg_str_ieq(const char* a, const char* b) {
     if (a == NULL || b == NULL) {
         return 0;
@@ -2641,6 +2654,24 @@ static int sg_extension_bootstrap_enabled(void) {
         return 0;
     }
     return 1;
+}
+
+static int sg_extension_sync_refresh_interval_ms(void) {
+    const char* raw = getenv("SENGOO_EXTENSION_REFRESH_MS");
+    if (raw == NULL || raw[0] == '\0') {
+        return 3000;
+    }
+    char* end = NULL;
+    long value = strtol(raw, &end, 10);
+    if (end == raw || *end != '\0' || value <= 0) {
+        return 3000;
+    }
+    if (value < 200) {
+        value = 200;
+    } else if (value > 600000) {
+        value = 600000;
+    }
+    return (int)value;
 }
 
 static const char* sg_extension_bootstrap_lua_exe(void) {
@@ -3122,6 +3153,136 @@ static int sg_bootstrap_extension(const char* name, const char* entry_path, cons
     return 1;
 }
 
+static int sg_run_extension_hook_once(
+    const char* name,
+    const char* entry_path,
+    const char* hash,
+    const char* hook_name
+) {
+    if (name == NULL || name[0] == '\0' || entry_path == NULL || entry_path[0] == '\0' || hook_name == NULL || hook_name[0] == '\0') {
+        return 0;
+    }
+    if (!sg_extension_bootstrap_check_lua_runtime()) {
+        return 0;
+    }
+    if (!sg_ensure_runtime_tmp_dirs()) {
+        return 0;
+    }
+
+    const char* lua_exe = sg_extension_bootstrap_lua_exe();
+    char safe_name[SG_EXTENSION_NAME_MAX];
+    char safe_hook[SG_EXTENSION_NAME_MAX];
+    sg_sanitize_filename_token(name, safe_name, sizeof(safe_name));
+    sg_sanitize_filename_token(hook_name, safe_hook, sizeof(safe_hook));
+
+    char script_path[SG_EXTENSION_SCRIPT_MAX];
+    snprintf(script_path, sizeof(script_path), ".tmp/runtime_host/ext_hook_%s_%s.lua", safe_name, safe_hook);
+
+    char lua_script[SG_EXTENSION_SCRIPT_MAX];
+    int script_len = snprintf(
+        lua_script,
+        sizeof(lua_script),
+        "local entry = [=[%s]=]\n"
+        "local ext_name = [=[%s]=]\n"
+        "local hook_name = [=[%s]=]\n"
+        "local ok, mod = pcall(dofile, entry)\n"
+        "if not ok then io.stderr:write(tostring(mod)); os.exit(31) end\n"
+        "local hook_fn = nil\n"
+        "if type(mod) == 'table' then hook_fn = mod[hook_name] end\n"
+        "if type(hook_fn) ~= 'function' and type(_G[hook_name]) == 'function' then hook_fn = _G[hook_name] end\n"
+        "if type(hook_fn) == 'function' then\n"
+        "  local call_ok, ret = pcall(hook_fn)\n"
+        "  if not call_ok then io.stderr:write(tostring(ret)); os.exit(32) end\n"
+        "  if ret ~= nil then io.write(tostring(ret)) end\n"
+        "  io.write(' EXT_HOOK_OK:' .. hook_name .. ':' .. ext_name)\n"
+        "else\n"
+        "  io.write('EXT_HOOK_SKIP:' .. hook_name .. ':' .. ext_name)\n"
+        "end\n",
+        entry_path,
+        name,
+        hook_name
+    );
+    if (script_len <= 0 || script_len >= (int)sizeof(lua_script)) {
+        sg_logf("WARN", "EXT", "extension hook script too large name=%s hook=%s", name, hook_name);
+        return 0;
+    }
+    if (!sg_write_text_file(script_path, lua_script)) {
+        sg_logf("WARN", "EXT", "extension hook script write failed name=%s hook=%s path=%s", name, hook_name, script_path);
+        return 0;
+    }
+
+    char command[SG_EXTENSION_CMD_MAX];
+#ifdef _WIN32
+    int command_len = snprintf(command, sizeof(command), "cmd /c \"\"%s\" \"%s\" 2>&1\"", lua_exe, script_path);
+#else
+    int command_len = snprintf(command, sizeof(command), "\"%s\" \"%s\" 2>&1", lua_exe, script_path);
+#endif
+    if (command_len <= 0 || command_len >= (int)sizeof(command)) {
+        remove(script_path);
+        sg_logf("WARN", "EXT", "extension hook command too large name=%s hook=%s", name, hook_name);
+        return 0;
+    }
+
+    char output[SG_EXTENSION_OUTPUT_MAX];
+    int exit_code = sg_run_command_capture(command, output, sizeof(output));
+    remove(script_path);
+    if (exit_code != 0) {
+        sg_logf(
+            "WARN",
+            "EXT",
+            "extension hook failed name=%s hook=%s exit=%d hash=%s output=%s",
+            name,
+            hook_name,
+            exit_code,
+            (hash == NULL ? "" : hash),
+            (output[0] == '\0' ? "<empty>" : output)
+        );
+        return 0;
+    }
+
+    if (strstr(output, "EXT_HOOK_SKIP:") == output) {
+        sg_logf("INFO", "EXT", "extension hook skipped name=%s hook=%s", name, hook_name);
+    } else {
+        sg_logf(
+            "INFO",
+            "EXT",
+            "extension hook executed name=%s hook=%s hash=%s output=%s",
+            name,
+            hook_name,
+            (hash == NULL ? "" : hash),
+            (output[0] == '\0' ? "<empty>" : output)
+        );
+    }
+    return 1;
+}
+
+static void sg_emit_extension_shutdown_hooks(void) {
+    if (g_extension_shutdown_hooks_emitted) {
+        return;
+    }
+    g_extension_shutdown_hooks_emitted = 1;
+    if (!sg_extension_bootstrap_enabled()) {
+        return;
+    }
+
+    int discovered = 0;
+    int executed = 0;
+    for (int i = 0; i < SG_EXTENSION_BOOTSTRAP_MAX; i++) {
+        sg_extension_bootstrap_entry* item = &g_extension_bootstrap_entries[i];
+        if (!item->used || !item->loaded || item->entry[0] == '\0') {
+            continue;
+        }
+        discovered += 1;
+        if (sg_run_extension_hook_once(item->name, item->entry, item->hash, "on_server_stop")) {
+            executed += 1;
+        }
+    }
+
+    if (discovered > 0) {
+        sg_logf("INFO", "EXT", "extension shutdown hook summary discovered=%d executed=%d", discovered, executed);
+    }
+}
+
 static void sg_sync_extension_bootstrap(const char* registry_json) {
     if (!sg_extension_bootstrap_enabled() || registry_json == NULL || registry_json[0] == '\0') {
         return;
@@ -3281,7 +3442,21 @@ static void sg_prepare_extension_sync_payload(void) {
         sg_logf("WARN", "EXT", "extension registry payload overflow; fallback to empty list");
     }
 
-    sg_logf("INFO", "EXT", "extension sync payload ready bytes=%u from=%s", (unsigned)strlen(g_extension_sync_payload), registry_path);
+    unsigned long fingerprint = sg_hash_text(g_extension_sync_payload);
+    if (fingerprint != g_extension_sync_payload_fingerprint) {
+        g_extension_sync_payload_fingerprint = fingerprint;
+        sg_logf("INFO", "EXT", "extension sync payload ready bytes=%u from=%s", (unsigned)strlen(g_extension_sync_payload), registry_path);
+    }
+}
+
+static void sg_tick_extension_sync_refresh(void) {
+    int interval_ms = sg_extension_sync_refresh_interval_ms();
+    long long now_ms = sg_monotonic_ms();
+    if (g_extension_sync_refresh_last_ms > 0 && now_ms - g_extension_sync_refresh_last_ms < (long long)interval_ms) {
+        return;
+    }
+    g_extension_sync_refresh_last_ms = now_ms;
+    sg_prepare_extension_sync_payload();
 }
 
 static long long sg_send_extension_sync_payload(sg_socket_t conn) {
@@ -4027,6 +4202,7 @@ long long sengoo_tcp_runtime_step(long long listener_handle, long long max_bytes
         return -2;
     }
     (void)listener;
+    sg_tick_extension_sync_refresh();
 
     long long accept_budget = max_accept_per_tick;
     if (accept_budget <= 0) {
@@ -4073,6 +4249,7 @@ long long sengoo_tcp_runtime_step(long long listener_handle, long long max_bytes
 }
 
 long long sengoo_tcp_connection_close_all(void) {
+    sg_emit_extension_shutdown_hooks();
     long long closed = 0;
     for (int i = 0; i < SG_MAX_NET_HANDLES; i++) {
         if (!g_tcp_connections[i].used) {

@@ -32,13 +32,12 @@
      - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall_runtime_host_windows_task_native.ps1`
    - Linux:
      - `sudo bash scripts/uninstall_runtime_host_systemd_native.sh`
-2. Restore Python-hosted service:
-   - Windows:
-     - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_runtime_host_windows_task.ps1 -StartNow -Force`
-   - Linux:
-     - `sudo bash scripts/install_runtime_host_systemd.sh`
-3. Run legacy acceptance once:
-   - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_release_gate.ps1 -UseLegacyPythonAcceptance`
+2. Restore previous native release artifact snapshot:
+   - Re-deploy previous known-good `release/native/<platform>/` package.
+   - Re-run installation script for that version.
+3. Re-run native healthcheck and smoke:
+   - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/healthcheck_runtime_host_native.ps1`
+   - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/runtime_host_acceptance_native.ps1`
 
 ## Success Criteria
 - Native gate remains green for at least one full soak cycle in production-like environment.

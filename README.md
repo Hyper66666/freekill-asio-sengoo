@@ -108,6 +108,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_runtime_host_n
 - 自动去除 UTF-8 BOM，避免客户端解析异常。
 - 当注册表为空/缺失时，若存在 `packages/freekill-core/lua/server/rpc/entry.lua`，会回退同步 `freekill-core` 基线扩展信息。
 - native runtime 会按注册表尝试执行扩展引导钩子（优先调用 `on_server_start`，其次 `bootstrap` / `init`），用于把原生 Lua 扩展接入服务启动链。
+- runtime 常驻期间会按 `SENGOO_EXTENSION_REFRESH_MS`（默认 `3000ms`）周期刷新扩展注册表并触发热更同步（不依赖新客户端连接）。
+- 服务停机时会对已加载扩展尝试触发 `on_server_stop` 钩子（若扩展未定义该函数则跳过）。
 - 可通过环境变量 `SENGOO_EXTENSION_BOOTSTRAP=0` 关闭该行为；Lua 解释器路径可用 `SENGOO_LUA_EXE` 指定（默认 `lua5.4`）。
 - 如需兼容原客户端 RSA 密码包，可启用 `SENGOO_AUTH_RSA_DECRYPT_ENABLE=1`，并配置：
   - `SENGOO_AUTH_OPENSSL_EXE`（默认 `openssl`）
@@ -194,6 +196,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_extension_matrix
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate_extension_abi_hook_compatibility.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate_extension_abi_hook_compatibility.ps1 -Enforce
+```
+
+- 契约覆盖率报告（发布历史不含 `docs/` 时使用 `scripts/fixtures` 默认映射）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/contract_coverage_report.ps1
 ```
 
 - Native soak：
