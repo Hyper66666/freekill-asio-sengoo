@@ -2474,6 +2474,7 @@ static int sg_handle_cbor_wire_packet(long long conn_handle, sg_socket_t socket,
         int reply_payload_major = packet->payload_major;
         const unsigned char* reply_payload_ptr = packet->payload_ptr;
         size_t reply_payload_len = packet->payload_len;
+        int reply_field_count = (packet->field_count >= 6 ? 6 : 4);
         unsigned char reply_payload_local[256];
 
         if (sg_packet_command_equals(packet, "ping")) {
@@ -2498,18 +2499,22 @@ static int sg_handle_cbor_wire_packet(long long conn_handle, sg_socket_t socket,
         }
 
         long long reply_type = (packet->packet_type & ~((long long)SG_PACKET_TYPE_REQUEST)) | SG_PACKET_TYPE_REPLY;
-        size_t out_cap = 96 + packet->command_len + reply_payload_len;
+        size_t out_cap = 128 + packet->command_len + reply_payload_len;
         unsigned char* out = (unsigned char*)malloc(out_cap);
         if (out == NULL) {
             return -1;
         }
         size_t idx = 0;
         int ok = 1;
-        ok = ok && sg_cbor_write_type_and_len(out, out_cap, &idx, 4, 4);
+        ok = ok && sg_cbor_write_type_and_len(out, out_cap, &idx, 4, (unsigned long long)reply_field_count);
         ok = ok && sg_cbor_write_signed_integer(out, out_cap, &idx, packet->request_id);
         ok = ok && sg_cbor_write_signed_integer(out, out_cap, &idx, reply_type);
         ok = ok && sg_cbor_write_bytes_like(out, out_cap, &idx, packet->command_major, packet->command_ptr, packet->command_len);
         ok = ok && sg_cbor_write_bytes_like(out, out_cap, &idx, reply_payload_major, reply_payload_ptr, reply_payload_len);
+        if (ok && reply_field_count >= 6) {
+            ok = ok && sg_cbor_write_signed_integer(out, out_cap, &idx, packet->timeout);
+            ok = ok && sg_cbor_write_signed_integer(out, out_cap, &idx, packet->timestamp);
+        }
 
         if (!ok || !sg_send_all(socket, out, idx)) {
             free(out);
@@ -2518,11 +2523,12 @@ static int sg_handle_cbor_wire_packet(long long conn_handle, sg_socket_t socket,
         sg_logf(
             "INFO",
             "PROTO",
-            "cbor request handled req=%lld type=%lld cmd=%s payload=%u",
+            "cbor request handled req=%lld type=%lld cmd=%s payload=%u fields=%d",
             packet->request_id,
             packet->packet_type,
             command_tag,
-            (unsigned)reply_payload_len
+            (unsigned)reply_payload_len,
+            reply_field_count
         );
         free(out);
         if (close_after_reply) {

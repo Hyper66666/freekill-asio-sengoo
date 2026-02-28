@@ -29,6 +29,16 @@
       "expected_response_utf8": "M1_CONN_PING\n"
     },
     {
+      "id": "tcp-cbor-setup-then-ping-six-fields",
+      "kind": "cbor_wire",
+      "transport": "tcp",
+      "port": 9527,
+      "request_hex": "8421190412455365747570518543626f7440417846302e352e3139417586021901124470696e6740181e187b",
+      "match_mode": "contains",
+      "expected_response_contains_hex": "86021902124470696e6744504f4e47181e187b",
+      "response_capture_bytes": 8192
+    },
+    {
       "id": "tcp-cbor-preauth-rejects-non-setup",
       "kind": "cbor_wire",
       "transport": "tcp",
