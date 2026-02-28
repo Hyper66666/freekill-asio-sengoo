@@ -4,21 +4,27 @@
 #include <stdint.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include <errno.h>
+#include <sys/stat.h>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <direct.h>
 #pragma comment(lib, "ws2_32.lib")
 typedef SOCKET sg_socket_t;
 #define SG_INVALID_SOCKET INVALID_SOCKET
 #define sg_close_socket closesocket
+#define sg_mkdir _mkdir
+#define sg_popen _popen
+#define sg_pclose _pclose
 #else
 #include <unistd.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <time.h>
+#include <strings.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -26,6 +32,9 @@ typedef SOCKET sg_socket_t;
 typedef int sg_socket_t;
 #define SG_INVALID_SOCKET (-1)
 #define sg_close_socket close
+#define sg_mkdir(path) mkdir((path), 0755)
+#define sg_popen popen
+#define sg_pclose pclose
 #endif
 
 void sengoo_print_i64(long long val) {
@@ -73,6 +82,13 @@ void* sengoo_realloc(void* ptr, long long old_size, long long old_align, long lo
 #define SG_MAX_NET_HANDLES 2048
 #define SG_EXTENSION_SYNC_PAYLOAD_MAX 32768
 #define SG_DEFAULT_EXTENSION_REGISTRY_JSON "[{\"name\":\"freekill-core\",\"enabled\":true,\"builtin\":true}]"
+#define SG_EXTENSION_BOOTSTRAP_MAX 256
+#define SG_EXTENSION_NAME_MAX 128
+#define SG_EXTENSION_ENTRY_MAX 1024
+#define SG_EXTENSION_HASH_MAX 96
+#define SG_EXTENSION_CMD_MAX 4096
+#define SG_EXTENSION_SCRIPT_MAX 4096
+#define SG_EXTENSION_OUTPUT_MAX 2048
 
 typedef struct {
     long long handle;
@@ -80,12 +96,28 @@ typedef struct {
     int used;
 } sg_socket_entry;
 
+typedef struct {
+    int used;
+    unsigned int generation;
+    int loaded;
+    int last_exit_code;
+    char name[SG_EXTENSION_NAME_MAX];
+    char entry[SG_EXTENSION_ENTRY_MAX];
+    char hash[SG_EXTENSION_HASH_MAX];
+} sg_extension_bootstrap_entry;
+
 static sg_socket_entry g_tcp_listeners[SG_MAX_NET_HANDLES];
 static sg_socket_entry g_tcp_connections[SG_MAX_NET_HANDLES];
 static sg_socket_entry g_udp_sockets[SG_MAX_NET_HANDLES];
 static long long g_next_handle = 1000000;
 static int g_net_init_logged = 0;
 static char g_extension_sync_payload[SG_EXTENSION_SYNC_PAYLOAD_MAX];
+static sg_extension_bootstrap_entry g_extension_bootstrap_entries[SG_EXTENSION_BOOTSTRAP_MAX];
+static unsigned int g_extension_bootstrap_generation = 0;
+static int g_extension_bootstrap_lua_missing_logged = 0;
+static int g_extension_bootstrap_synced_once = 0;
+static int g_extension_bootstrap_lua_checked = 0;
+static int g_extension_bootstrap_lua_available = 0;
 
 static void sg_logf(const char* level, const char* module, const char* fmt, ...) {
     char timestamp[32];
@@ -220,6 +252,447 @@ static void sg_trim_trailing_whitespace(char* text) {
     }
 }
 
+static int sg_str_ieq(const char* a, const char* b) {
+    if (a == NULL || b == NULL) {
+        return 0;
+    }
+#ifdef _WIN32
+    return _stricmp(a, b) == 0;
+#else
+    return strcasecmp(a, b) == 0;
+#endif
+}
+
+static int sg_extension_bootstrap_enabled(void) {
+    const char* raw = getenv("SENGOO_EXTENSION_BOOTSTRAP");
+    if (raw == NULL || raw[0] == '\0') {
+        return 1;
+    }
+    if (sg_str_ieq(raw, "0") || sg_str_ieq(raw, "false") || sg_str_ieq(raw, "off") || sg_str_ieq(raw, "no")) {
+        return 0;
+    }
+    return 1;
+}
+
+static const char* sg_extension_bootstrap_lua_exe(void) {
+    const char* raw = getenv("SENGOO_LUA_EXE");
+    if (raw == NULL || raw[0] == '\0') {
+        return "lua5.4";
+    }
+    return raw;
+}
+
+static int sg_extension_bootstrap_check_lua_runtime(void) {
+    if (g_extension_bootstrap_lua_checked) {
+        return g_extension_bootstrap_lua_available;
+    }
+    g_extension_bootstrap_lua_checked = 1;
+    g_extension_bootstrap_lua_available = 0;
+
+    const char* lua_exe = sg_extension_bootstrap_lua_exe();
+    if (lua_exe == NULL || lua_exe[0] == '\0') {
+        return 0;
+    }
+
+    if (strchr(lua_exe, '\\') != NULL || strchr(lua_exe, '/') != NULL || strchr(lua_exe, ':') != NULL) {
+        g_extension_bootstrap_lua_available = sg_path_exists(lua_exe);
+    } else {
+        char check_cmd[SG_EXTENSION_CMD_MAX];
+#ifdef _WIN32
+        int check_len = snprintf(check_cmd, sizeof(check_cmd), "where %s >nul 2>&1", lua_exe);
+#else
+        int check_len = snprintf(check_cmd, sizeof(check_cmd), "command -v %s >/dev/null 2>&1", lua_exe);
+#endif
+        if (check_len > 0 && check_len < (int)sizeof(check_cmd)) {
+            int check_rc = system(check_cmd);
+            g_extension_bootstrap_lua_available = (check_rc == 0);
+        }
+    }
+
+    if (!g_extension_bootstrap_lua_available && !g_extension_bootstrap_lua_missing_logged) {
+        g_extension_bootstrap_lua_missing_logged = 1;
+        sg_logf("WARN", "EXT", "lua runtime unavailable exe=%s", lua_exe);
+    }
+    return g_extension_bootstrap_lua_available;
+}
+
+static int sg_ensure_runtime_tmp_dirs(void) {
+    if (sg_mkdir(".tmp") != 0 && errno != EEXIST) {
+        return 0;
+    }
+    if (sg_mkdir(".tmp/runtime_host") != 0 && errno != EEXIST) {
+        return 0;
+    }
+    return 1;
+}
+
+static const char* sg_find_substr_in_range(const char* begin, const char* end, const char* needle) {
+    if (begin == NULL || end == NULL || needle == NULL) {
+        return NULL;
+    }
+    size_t needle_len = strlen(needle);
+    if (needle_len == 0 || begin >= end) {
+        return NULL;
+    }
+    const char* p = begin;
+    while (p + needle_len <= end) {
+        if (memcmp(p, needle, needle_len) == 0) {
+            return p;
+        }
+        p += 1;
+    }
+    return NULL;
+}
+
+static int sg_extract_json_string_field(
+    const char* obj_begin,
+    const char* obj_end,
+    const char* field_name,
+    char* out,
+    size_t out_cap
+) {
+    if (obj_begin == NULL || obj_end == NULL || field_name == NULL || out == NULL || out_cap == 0 || obj_begin >= obj_end) {
+        return 0;
+    }
+    out[0] = '\0';
+
+    char key_pattern[128];
+    int key_len = snprintf(key_pattern, sizeof(key_pattern), "\"%s\"", field_name);
+    if (key_len <= 0 || key_len >= (int)sizeof(key_pattern)) {
+        return 0;
+    }
+
+    const char* key = sg_find_substr_in_range(obj_begin, obj_end, key_pattern);
+    if (key == NULL) {
+        return 0;
+    }
+    const char* p = key + key_len;
+    while (p < obj_end && isspace((unsigned char)*p)) {
+        p += 1;
+    }
+    if (p >= obj_end || *p != ':') {
+        return 0;
+    }
+    p += 1;
+    while (p < obj_end && isspace((unsigned char)*p)) {
+        p += 1;
+    }
+    if (p >= obj_end || *p != '"') {
+        return 0;
+    }
+    p += 1;
+
+    size_t out_len = 0;
+    int escaped = 0;
+    while (p < obj_end) {
+        char ch = *p;
+        if (!escaped) {
+            if (ch == '\\') {
+                escaped = 1;
+            } else if (ch == '"') {
+                out[out_len] = '\0';
+                return 1;
+            } else {
+                if (out_len + 1 < out_cap) {
+                    out[out_len++] = ch;
+                }
+            }
+        } else {
+            char decoded = ch;
+            if (ch == 'n') decoded = '\n';
+            else if (ch == 'r') decoded = '\r';
+            else if (ch == 't') decoded = '\t';
+            else if (ch == '\\') decoded = '\\';
+            else if (ch == '"') decoded = '"';
+            else if (ch == '/') decoded = '/';
+            if (out_len + 1 < out_cap) {
+                out[out_len++] = decoded;
+            }
+            escaped = 0;
+        }
+        p += 1;
+    }
+    out[out_len] = '\0';
+    return 0;
+}
+
+static void sg_sanitize_filename_token(const char* input, char* out, size_t out_cap) {
+    if (out == NULL || out_cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (input == NULL || input[0] == '\0') {
+        snprintf(out, out_cap, "unknown");
+        return;
+    }
+    size_t j = 0;
+    for (size_t i = 0; input[i] != '\0' && j + 1 < out_cap; i++) {
+        unsigned char c = (unsigned char)input[i];
+        if (isalnum(c) || c == '-' || c == '_') {
+            out[j++] = (char)c;
+        } else {
+            out[j++] = '_';
+        }
+    }
+    out[j] = '\0';
+    if (j == 0) {
+        snprintf(out, out_cap, "unknown");
+    }
+}
+
+static int sg_write_text_file(const char* path, const char* content) {
+    if (path == NULL || content == NULL) {
+        return 0;
+    }
+    FILE* fp = fopen(path, "wb");
+    if (fp == NULL) {
+        return 0;
+    }
+    size_t n = fwrite(content, 1, strlen(content), fp);
+    fclose(fp);
+    return n == strlen(content);
+}
+
+static int sg_run_command_capture(const char* command, char* output, size_t output_cap) {
+    if (command == NULL || command[0] == '\0' || output == NULL || output_cap == 0) {
+        return -1;
+    }
+    output[0] = '\0';
+    FILE* pipe = sg_popen(command, "r");
+    if (pipe == NULL) {
+        return -1;
+    }
+    size_t used = 0;
+    char chunk[256];
+    while (fgets(chunk, (int)sizeof(chunk), pipe) != NULL) {
+        size_t chunk_len = strlen(chunk);
+        if (used + chunk_len + 1 < output_cap) {
+            memcpy(output + used, chunk, chunk_len);
+            used += chunk_len;
+            output[used] = '\0';
+        }
+    }
+    int exit_code = sg_pclose(pipe);
+    sg_trim_trailing_whitespace(output);
+    return exit_code;
+}
+
+static int sg_find_extension_bootstrap_slot(const char* name, int* found_existing) {
+    int first_free = -1;
+    if (found_existing != NULL) {
+        *found_existing = 0;
+    }
+    for (int i = 0; i < SG_EXTENSION_BOOTSTRAP_MAX; i++) {
+        if (!g_extension_bootstrap_entries[i].used) {
+            if (first_free < 0) {
+                first_free = i;
+            }
+            continue;
+        }
+        if (strcmp(g_extension_bootstrap_entries[i].name, name) == 0) {
+            if (found_existing != NULL) {
+                *found_existing = 1;
+            }
+            return i;
+        }
+    }
+    return first_free;
+}
+
+static int sg_bootstrap_extension(const char* name, const char* entry_path, const char* hash) {
+    const char* lua_exe = sg_extension_bootstrap_lua_exe();
+    if (!sg_extension_bootstrap_check_lua_runtime()) {
+        return 0;
+    }
+    if (!sg_ensure_runtime_tmp_dirs()) {
+        sg_logf("WARN", "EXT", "extension bootstrap skipped mkdir failed");
+        return 0;
+    }
+
+    char safe_name[SG_EXTENSION_NAME_MAX];
+    sg_sanitize_filename_token(name, safe_name, sizeof(safe_name));
+
+    char script_path[SG_EXTENSION_SCRIPT_MAX];
+    snprintf(script_path, sizeof(script_path), ".tmp/runtime_host/ext_bootstrap_%s.lua", safe_name);
+
+    char lua_script[SG_EXTENSION_SCRIPT_MAX];
+    int script_len = snprintf(
+        lua_script,
+        sizeof(lua_script),
+        "local entry = [=[%s]=]\n"
+        "local ext_name = [=[%s]=]\n"
+        "local ok, mod = pcall(dofile, entry)\n"
+        "if not ok then io.stderr:write(tostring(mod)); os.exit(21) end\n"
+        "local init_fn = nil\n"
+        "if type(mod) == 'table' then init_fn = mod.on_server_start or mod.bootstrap or mod.init end\n"
+        "if type(init_fn) == 'function' then\n"
+        "  local call_ok, ret = pcall(init_fn)\n"
+        "  if not call_ok then io.stderr:write(tostring(ret)); os.exit(22) end\n"
+        "  if ret ~= nil then io.write(tostring(ret)) end\n"
+        "end\n"
+        "io.write('EXT_BOOTSTRAP_OK:' .. ext_name)\n",
+        entry_path,
+        name
+    );
+    if (script_len <= 0 || script_len >= (int)sizeof(lua_script)) {
+        sg_logf("WARN", "EXT", "extension bootstrap script too large name=%s", name);
+        return 0;
+    }
+    if (!sg_write_text_file(script_path, lua_script)) {
+        sg_logf("WARN", "EXT", "extension bootstrap script write failed name=%s path=%s", name, script_path);
+        return 0;
+    }
+
+    char command[SG_EXTENSION_CMD_MAX];
+#ifdef _WIN32
+    int command_len = snprintf(command, sizeof(command), "cmd /c \"\"%s\" \"%s\" 2>&1\"", lua_exe, script_path);
+#else
+    int command_len = snprintf(command, sizeof(command), "\"%s\" \"%s\" 2>&1", lua_exe, script_path);
+#endif
+    if (command_len <= 0 || command_len >= (int)sizeof(command)) {
+        remove(script_path);
+        sg_logf("WARN", "EXT", "extension bootstrap command too large name=%s", name);
+        return 0;
+    }
+
+    char output[SG_EXTENSION_OUTPUT_MAX];
+    int exit_code = sg_run_command_capture(command, output, sizeof(output));
+    remove(script_path);
+
+    if (exit_code != 0) {
+        sg_logf(
+            "WARN",
+            "EXT",
+            "extension bootstrap failed name=%s exit=%d hash=%s output=%s",
+            name,
+            exit_code,
+            (hash == NULL ? "" : hash),
+            (output[0] == '\0' ? "<empty>" : output)
+        );
+        return 0;
+    }
+
+    sg_logf(
+        "INFO",
+        "EXT",
+        "extension bootstrap loaded name=%s hash=%s output=%s",
+        name,
+        (hash == NULL ? "" : hash),
+        (output[0] == '\0' ? "<empty>" : output)
+    );
+    return 1;
+}
+
+static void sg_sync_extension_bootstrap(const char* registry_json) {
+    if (!sg_extension_bootstrap_enabled() || registry_json == NULL || registry_json[0] == '\0') {
+        return;
+    }
+
+    g_extension_bootstrap_generation += 1;
+    if (g_extension_bootstrap_generation == 0) {
+        g_extension_bootstrap_generation = 1;
+    }
+    unsigned int generation = g_extension_bootstrap_generation;
+
+    int discovered_count = 0;
+    int loaded_count = 0;
+    int reload_count = 0;
+    int changed_any = 0;
+
+    const char* cursor = registry_json;
+    while (cursor != NULL && *cursor != '\0') {
+        const char* obj_begin = strchr(cursor, '{');
+        if (obj_begin == NULL) {
+            break;
+        }
+        const char* obj_end = strchr(obj_begin, '}');
+        if (obj_end == NULL) {
+            break;
+        }
+
+        char name[SG_EXTENSION_NAME_MAX];
+        char entry[SG_EXTENSION_ENTRY_MAX];
+        char hash[SG_EXTENSION_HASH_MAX];
+        name[0] = '\0';
+        entry[0] = '\0';
+        hash[0] = '\0';
+
+        int has_name = sg_extract_json_string_field(obj_begin, obj_end + 1, "name", name, sizeof(name));
+        (void)sg_extract_json_string_field(obj_begin, obj_end + 1, "entry", entry, sizeof(entry));
+        (void)sg_extract_json_string_field(obj_begin, obj_end + 1, "hash", hash, sizeof(hash));
+
+        if (has_name && entry[0] == '\0' && strcmp(name, "freekill-core") == 0) {
+            const char* core_entry = getenv("SENGOO_EXTENSION_CORE_ENTRY");
+            if (core_entry == NULL || core_entry[0] == '\0') {
+                core_entry = "packages/freekill-core/lua/server/rpc/entry.lua";
+            }
+            snprintf(entry, sizeof(entry), "%s", core_entry);
+        }
+
+        if (has_name && entry[0] != '\0') {
+            discovered_count += 1;
+            int found_existing = 0;
+            int slot = sg_find_extension_bootstrap_slot(name, &found_existing);
+            if (slot >= 0) {
+                sg_extension_bootstrap_entry* item = &g_extension_bootstrap_entries[slot];
+                int changed = (!found_existing)
+                    || strcmp(item->entry, entry) != 0
+                    || strcmp(item->hash, hash) != 0
+                    || !item->loaded;
+
+                if (!found_existing) {
+                    memset(item, 0, sizeof(*item));
+                    item->used = 1;
+                    snprintf(item->name, sizeof(item->name), "%s", name);
+                }
+
+                if (changed) {
+                    changed_any = 1;
+                    if (item->loaded) {
+                        reload_count += 1;
+                    }
+                    item->loaded = sg_bootstrap_extension(name, entry, hash);
+                    item->last_exit_code = (item->loaded ? 0 : 1);
+                    snprintf(item->entry, sizeof(item->entry), "%s", entry);
+                    snprintf(item->hash, sizeof(item->hash), "%s", hash);
+                }
+                item->generation = generation;
+                if (item->loaded) {
+                    loaded_count += 1;
+                }
+            }
+        }
+
+        cursor = obj_end + 1;
+    }
+
+    for (int i = 0; i < SG_EXTENSION_BOOTSTRAP_MAX; i++) {
+        sg_extension_bootstrap_entry* item = &g_extension_bootstrap_entries[i];
+        if (!item->used) {
+            continue;
+        }
+        if (item->generation != generation) {
+            if (item->loaded) {
+                sg_logf("INFO", "EXT", "extension bootstrap unloaded name=%s", item->name);
+            }
+            changed_any = 1;
+            memset(item, 0, sizeof(*item));
+        }
+    }
+
+    if ((discovered_count > 0 && (changed_any || !g_extension_bootstrap_synced_once)) || (changed_any && discovered_count == 0)) {
+        sg_logf(
+            "INFO",
+            "EXT",
+            "extension bootstrap sync discovered=%d loaded=%d reloaded=%d",
+            discovered_count,
+            loaded_count,
+            reload_count
+        );
+    }
+    g_extension_bootstrap_synced_once = 1;
+}
+
 static void sg_fill_registry_fallback(char* registry_json, size_t cap) {
     const char* core_entry_path = getenv("SENGOO_EXTENSION_CORE_ENTRY");
     if (core_entry_path == NULL || core_entry_path[0] == '\0') {
@@ -252,6 +725,7 @@ static void sg_prepare_extension_sync_payload(void) {
     if (sg_registry_json_is_empty(registry_json)) {
         sg_fill_registry_fallback(registry_json, sizeof(registry_json));
     }
+    sg_sync_extension_bootstrap(registry_json);
 
     int payload_len = snprintf(
         g_extension_sync_payload,

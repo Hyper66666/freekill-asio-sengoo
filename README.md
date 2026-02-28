@@ -105,6 +105,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_runtime_host_n
 - 如果不走启动脚本而是直接运行 exe，默认读取 `packages/packages.registry.json`。
 - 自动去除 UTF-8 BOM，避免客户端解析异常。
 - 当注册表为空/缺失时，若存在 `packages/freekill-core/lua/server/rpc/entry.lua`，会回退同步 `freekill-core` 基线扩展信息。
+- native runtime 会按注册表尝试执行扩展引导钩子（优先调用 `on_server_start`，其次 `bootstrap` / `init`），用于把原生 Lua 扩展接入服务启动链。
+- 可通过环境变量 `SENGOO_EXTENSION_BOOTSTRAP=0` 关闭该行为；Lua 解释器路径可用 `SENGOO_LUA_EXE` 指定（默认 `lua5.4`）。
 
 默认会写入日志文件（可直接排障）：
 - 事件日志：`.tmp/runtime_host/native_runtime.events.log`
