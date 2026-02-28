@@ -15,6 +15,9 @@ param(
   [switch]$UseLocalExtensionMatrixFixture,
 
   [Parameter(Mandatory = $false)]
+  [switch]$UseWorkspaceExtensionMatrix,
+
+  [Parameter(Mandatory = $false)]
   [string]$OutputPath = ".tmp/runtime_host/runtime_host_replacement_gate_native.json"
 )
 
@@ -75,6 +78,9 @@ if ([bool]$EnforceAbiHookCompatibility) {
 if ([bool]$UseLocalExtensionMatrixFixture) {
   $gateArgs += "-UseLocalExtensionMatrixFixture"
 }
+if ([bool]$UseWorkspaceExtensionMatrix) {
+  $gateArgs += "-UseWorkspaceExtensionMatrix"
+}
 $gateReportPath = ".tmp/runtime_host/runtime_host_release_gate.json"
 if (Test-Path $gateReportPath) {
   Remove-Item -Force $gateReportPath
@@ -121,6 +127,7 @@ $summary = [ordered]@{
   generated_at_utc = (Get-Date).ToUniversalTime().ToString("o")
   replaceable = $replaceable
   enforce_abi_hook_compatibility = [bool]$EnforceAbiHookCompatibility
+  use_workspace_extension_matrix = [bool]$UseWorkspaceExtensionMatrix
   soak_duration_seconds = $SoakDurationSeconds
   verify_exit_code = $verifyExitCode
   verify_error = $verifyError

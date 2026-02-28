@@ -72,6 +72,9 @@ param(
   [string]$ExtensionMatrixScriptPath = "scripts/run_extension_matrix_native.ps1",
 
   [Parameter(Mandatory = $false)]
+  [string]$WorkspaceExtensionMatrixScriptPath = "scripts/run_extension_matrix_workspace_native.ps1",
+
+  [Parameter(Mandatory = $false)]
   [string]$ExtensionMatrixReportPath = ".tmp/runtime_host/extension_matrix_native_report.json",
 
   [Parameter(Mandatory = $false)]
@@ -79,6 +82,9 @@ param(
 
   [Parameter(Mandatory = $false)]
   [switch]$UseLocalExtensionMatrixFixture,
+
+  [Parameter(Mandatory = $false)]
+  [switch]$UseWorkspaceExtensionMatrix,
 
   [Parameter(Mandatory = $false)]
   [string]$OutputPath = ".tmp/runtime_host/runtime_host_release_gate.json"
@@ -207,19 +213,31 @@ $extensionMatrixExecuted = $IncludeExtensionMatrix
 $extensionMatrixOk = $true
 $extensionMatrix = $null
 if ($extensionMatrixExecuted) {
-  if (-not (Test-Path $ExtensionMatrixScriptPath)) {
-    throw "extension matrix script not found: $ExtensionMatrixScriptPath"
+  if ([bool]$UseWorkspaceExtensionMatrix) {
+    if (-not (Test-Path $WorkspaceExtensionMatrixScriptPath)) {
+      throw "workspace extension matrix script not found: $WorkspaceExtensionMatrixScriptPath"
+    }
+    $matrixArgs = @(
+      "-NoProfile", "-ExecutionPolicy", "Bypass",
+      "-File", $WorkspaceExtensionMatrixScriptPath,
+      "-OutputPath", $ExtensionMatrixReportPath
+    )
+    & powershell @matrixArgs | Out-Null
+  } else {
+    if (-not (Test-Path $ExtensionMatrixScriptPath)) {
+      throw "extension matrix script not found: $ExtensionMatrixScriptPath"
+    }
+    $matrixArgs = @(
+      "-NoProfile", "-ExecutionPolicy", "Bypass",
+      "-File", $ExtensionMatrixScriptPath,
+      "-TargetsPath", $ExtensionMatrixTargetsPath,
+      "-OutputPath", $ExtensionMatrixReportPath
+    )
+    if ([bool]$UseLocalExtensionMatrixFixture) {
+      $matrixArgs += "-UseLocalFixture"
+    }
+    & powershell @matrixArgs | Out-Null
   }
-  $matrixArgs = @(
-    "-NoProfile", "-ExecutionPolicy", "Bypass",
-    "-File", $ExtensionMatrixScriptPath,
-    "-TargetsPath", $ExtensionMatrixTargetsPath,
-    "-OutputPath", $ExtensionMatrixReportPath
-  )
-  if ([bool]$UseLocalExtensionMatrixFixture) {
-    $matrixArgs += "-UseLocalFixture"
-  }
-  & powershell @matrixArgs | Out-Null
   if ($LASTEXITCODE -ne 0) {
     throw "release gate failed: extension matrix returned non-zero"
   }
@@ -316,6 +334,7 @@ $gate = [ordered]@{
   extension_matrix = [ordered]@{
     executed = $extensionMatrixExecuted
     pass = $extensionMatrixOk
+    mode = if ([bool]$UseWorkspaceExtensionMatrix) { "workspace" } else { "targets-file" }
     report_path = if ($extensionMatrixExecuted) { (Resolve-Path $ExtensionMatrixReportPath).Path } else { "" }
     report = $extensionMatrix
   }
