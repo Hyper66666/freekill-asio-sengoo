@@ -86,7 +86,6 @@ static sg_socket_entry g_udp_sockets[SG_MAX_NET_HANDLES];
 static long long g_next_handle = 1000000;
 static int g_net_init_logged = 0;
 static char g_extension_sync_payload[SG_EXTENSION_SYNC_PAYLOAD_MAX];
-static int g_extension_sync_payload_ready = 0;
 
 static void sg_logf(const char* level, const char* module, const char* fmt, ...) {
     char timestamp[32];
@@ -236,11 +235,6 @@ static void sg_fill_registry_fallback(char* registry_json, size_t cap) {
 }
 
 static void sg_prepare_extension_sync_payload(void) {
-    if (g_extension_sync_payload_ready) {
-        return;
-    }
-    g_extension_sync_payload_ready = 1;
-
     const char* registry_path = getenv("SENGOO_EXTENSION_REGISTRY");
     if (registry_path == NULL || registry_path[0] == '\0') {
         registry_path = "packages/packages.registry.json";
@@ -274,13 +268,7 @@ static void sg_prepare_extension_sync_payload(void) {
         sg_logf("WARN", "EXT", "extension registry payload overflow; fallback to empty list");
     }
 
-    sg_logf(
-        "INFO",
-        "EXT",
-        "prepared extension sync payload bytes=%u from=%s",
-        (unsigned)strlen(g_extension_sync_payload),
-        registry_path
-    );
+    sg_logf("INFO", "EXT", "extension sync payload ready bytes=%u from=%s", (unsigned)strlen(g_extension_sync_payload), registry_path);
 }
 
 static long long sg_send_extension_sync_payload(sg_socket_t conn) {

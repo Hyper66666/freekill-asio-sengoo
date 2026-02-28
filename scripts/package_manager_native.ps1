@@ -19,7 +19,13 @@ param(
   [switch]$AsJson,
 
   [Parameter(Mandatory = $false)]
-  [string]$OutputPath = ".tmp/runtime_host/package_manager_native_last.json"
+  [string]$OutputPath = ".tmp/runtime_host/package_manager_native_last.json",
+
+  [Parameter(Mandatory = $false)]
+  [string]$ExtensionSyncRegistryPath = ".tmp/runtime_host/extension_sync.registry.json",
+
+  [Parameter(Mandatory = $false)]
+  [switch]$SkipExtensionSyncRegistryRefresh
 )
 
 $ErrorActionPreference = "Stop"
@@ -496,6 +502,36 @@ if (-not $ok) {
 
 Save-Registry $resolvedRegistryPath $registry
 Sync-DisabledPacksSnapshot $resolvedPackagesRoot $registry
+
+if (-not [bool]$SkipExtensionSyncRegistryRefresh) {
+  $refreshScriptPath = Resolve-AbsolutePath -path "scripts/refresh_extension_sync_registry.ps1" -baseDir $repoRoot
+  $resolvedExtensionSyncRegistryPath = Resolve-AbsolutePath -path $ExtensionSyncRegistryPath -baseDir $repoRoot
+  if (Test-Path $refreshScriptPath) {
+    try {
+      $refreshJson = & powershell -NoProfile -ExecutionPolicy Bypass -File $refreshScriptPath `
+        -PackagesRoot $resolvedPackagesRoot `
+        -OutputPath $resolvedExtensionSyncRegistryPath `
+        -AsJson
+      $refreshExit = [int]$LASTEXITCODE
+      if ($refreshExit -eq 0 -and -not [string]::IsNullOrWhiteSpace(($refreshJson -join [Environment]::NewLine))) {
+        $refreshReport = (($refreshJson -join [Environment]::NewLine).Trim() | ConvertFrom-Json)
+        $details["extension_sync_registry_refreshed"] = $true
+        $details["extension_sync_registry_path"] = [string]$refreshReport.output_path
+        $details["extension_sync_registry_count"] = [int]$refreshReport.extension_count
+      } else {
+        $details["extension_sync_registry_refreshed"] = $false
+        $details["extension_sync_registry_error"] = ("refresh script exited with code {0}" -f $refreshExit)
+      }
+    } catch {
+      $details["extension_sync_registry_refreshed"] = $false
+      $details["extension_sync_registry_error"] = $_.Exception.Message
+    }
+  } else {
+    $details["extension_sync_registry_refreshed"] = $false
+    $details["extension_sync_registry_error"] = ("refresh script not found: {0}" -f $refreshScriptPath)
+  }
+}
+
 $report = Emit-Report $OutputPath $Command $ok $reasonCode $resolvedPackagesRoot $resolvedRegistryPath $registry $details
 
 if ($AsJson) {

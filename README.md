@@ -99,7 +99,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_runtime_host_n
 说明：
 - 通过 `scripts/start_runtime_host_native.ps1` 启动时，会自动扫描扩展并生成同步注册表（默认输出 `.tmp/runtime_host/extension_sync.registry.json`）。
 - 扫描根目录包含 `packages/` 与 `packages/packages/`（后者用于兼容你现在的嵌套扩展布局）。
-- 发现规则：存在 `lua/server/rpc/entry.lua` 的目录会被纳入同步列表。
+- 发现规则（按优先级）：`lua/server/rpc/entry.lua` -> `init.lua` -> `lua/init.lua`，任一存在即纳入同步列表。
+- 这允许直接同步多数原仓库包结构（如 `standard`、`maneuvering`、`standard_cards` 这类 `init.lua` 包）。
 - 自动将生成的注册表路径注入 `SENGOO_EXTENSION_REGISTRY` 环境变量给 native runtime。
 - 如果不走启动脚本而是直接运行 exe，默认读取 `packages/packages.registry.json`。
 - 自动去除 UTF-8 BOM，避免客户端解析异常。

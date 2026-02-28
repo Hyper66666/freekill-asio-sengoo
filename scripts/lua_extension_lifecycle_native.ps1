@@ -67,8 +67,84 @@ function Ensure-ParentDir([string]$path) {
   }
 }
 
-function Extension-EntryPath([string]$packagesRoot, [string]$name) {
-  return (Join-Path (Join-Path $packagesRoot $name) "lua/server/rpc/entry.lua")
+function Get-PackageRoots([string]$packagesRoot) {
+  $roots = New-Object System.Collections.Generic.List[string]
+  if (Test-Path $packagesRoot) {
+    [void]$roots.Add((Resolve-Path $packagesRoot).Path)
+  }
+  $nestedRoot = Join-Path $packagesRoot "packages"
+  if (Test-Path $nestedRoot) {
+    [void]$roots.Add((Resolve-Path $nestedRoot).Path)
+  }
+  return @($roots | Select-Object -Unique)
+}
+
+function Resolve-ExtensionEntry([string]$packageDir) {
+  $candidates = @(
+    [ordered]@{ kind = "rpc_entry"; path = (Join-Path $packageDir "lua/server/rpc/entry.lua") },
+    [ordered]@{ kind = "package_init"; path = (Join-Path $packageDir "init.lua") },
+    [ordered]@{ kind = "lua_init"; path = (Join-Path $packageDir "lua/init.lua") }
+  )
+  foreach ($candidate in $candidates) {
+    if (Test-Path ([string]$candidate.path)) {
+      return [ordered]@{
+        entry_path = [string]$candidate.path
+        entry_kind = [string]$candidate.kind
+      }
+    }
+  }
+  return $null
+}
+
+function Resolve-ExtensionLocation([string]$packagesRoot, [string]$name) {
+  foreach ($root in @(Get-PackageRoots $packagesRoot)) {
+    $packageDir = Join-Path $root $name
+    if (-not (Test-Path $packageDir)) {
+      continue
+    }
+    $entry = Resolve-ExtensionEntry -packageDir $packageDir
+    if ($null -eq $entry) {
+      continue
+    }
+    return [ordered]@{
+      package_path = $packageDir
+      source_root = $root
+      entry_path = [string]$entry.entry_path
+      entry_kind = [string]$entry.entry_kind
+    }
+  }
+  return $null
+}
+
+function Get-DiscoverableExtensions([string]$packagesRoot) {
+  $seen = @{}
+  $records = New-Object System.Collections.Generic.List[object]
+  $roots = @(Get-PackageRoots $packagesRoot)
+  foreach ($root in $roots) {
+    $dirs = @(Get-ChildItem -Path $root -Directory -Force -ErrorAction SilentlyContinue)
+    foreach ($dir in $dirs) {
+      $name = [string]$dir.Name
+      if ([string]::IsNullOrWhiteSpace($name) -or $name.StartsWith(".")) {
+        continue
+      }
+      if ($seen.ContainsKey($name)) {
+        continue
+      }
+      $entry = Resolve-ExtensionEntry -packageDir $dir.FullName
+      if ($null -eq $entry) {
+        continue
+      }
+      $records.Add([ordered]@{
+        name = $name
+        package_path = $dir.FullName
+        source_root = $root
+        entry_path = [string]$entry.entry_path
+        entry_kind = [string]$entry.entry_kind
+      }) | Out-Null
+      $seen[$name] = $true
+    }
+  }
+  return @($records | Sort-Object -Property name)
 }
 
 function Load-State([string]$statePath) {
@@ -270,22 +346,18 @@ try {
   switch ($Command) {
     "discover" {
       $found = @()
-      $dirs = @(Get-ChildItem -Path $resolvedPackagesRoot -Directory -Force)
-      foreach ($dir in $dirs) {
-        $name = [string]$dir.Name
-        if ($name.StartsWith(".")) {
-          continue
-        }
-        $entryPath = Extension-EntryPath $resolvedPackagesRoot $name
-        if (-not (Test-Path $entryPath)) {
-          continue
-        }
+      $discoverable = @(Get-DiscoverableExtensions $resolvedPackagesRoot)
+      foreach ($item in $discoverable) {
+        $name = [string]($item.name)
+        $entryPath = [string]($item.entry_path)
         $entryHash = (Get-FileHash -Algorithm SHA256 -Path $entryPath).Hash.ToLowerInvariant()
         $hooks = Parse-HooksFromEntry $entryPath
-        [void](Ensure-Record $state $name $dir.FullName $entryPath $entryHash $hooks)
+        [void](Ensure-Record $state $name ([string]($item.package_path)) $entryPath $entryHash $hooks)
         $found += $name
       }
       $details["found_extensions"] = @($found | Sort-Object -Unique)
+      $details["scan_roots"] = @(Get-PackageRoots $resolvedPackagesRoot)
+      $details["entry_types"] = @($discoverable | ForEach-Object { [string]($_.entry_kind) } | Sort-Object -Unique)
     }
     "load" {
       if ([string]::IsNullOrWhiteSpace($Name)) {
@@ -293,14 +365,15 @@ try {
         throw "load command requires -Name"
       }
       $target = $Name.Trim()
-      $entryPath = Extension-EntryPath $resolvedPackagesRoot $target
-      if (-not (Test-Path $entryPath)) {
+      $location = Resolve-ExtensionLocation -packagesRoot $resolvedPackagesRoot -name $target
+      if ($null -eq $location) {
         $failureReason = Reason-ExtensionMissing
-        throw "extension entry not found: $entryPath"
+        throw "extension entry not found for package: $target"
       }
+      $entryPath = [string]($location.entry_path)
       $entryHash = (Get-FileHash -Algorithm SHA256 -Path $entryPath).Hash.ToLowerInvariant()
       $hooks = Parse-HooksFromEntry $entryPath
-      $idx = Ensure-Record $state $target (Join-Path $resolvedPackagesRoot $target) $entryPath $entryHash $hooks
+      $idx = Ensure-Record $state $target ([string]($location.package_path)) $entryPath $entryHash $hooks
 
       if ($EnableLuaExecution) {
         if (-not (Test-LuaExeAvailable $LuaExe)) {
@@ -319,6 +392,8 @@ try {
       $details["loaded_extension"] = $target
       $details["hooks"] = @($hooks)
       $details["lua_execution"] = [bool]$EnableLuaExecution
+      $details["entry_kind"] = [string]($location.entry_kind)
+      $details["source_root"] = [string]($location.source_root)
     }
     "call" {
       if ([string]::IsNullOrWhiteSpace($Name)) {
@@ -346,11 +421,11 @@ try {
           $failureReason = Reason-LuaRuntimeUnavailable
           throw "lua runtime not found: $LuaExe"
         }
-        $callResult = Invoke-LuaHook $LuaExe [string]$state.extensions[$idx].entry $hookName $PayloadJson
+        $callResult = Invoke-LuaHook $LuaExe ([string]($state.extensions[$idx].entry)) $hookName $PayloadJson
         $details["lua_call"] = $callResult
         if ([int]$callResult.exit_code -ne 0) {
           $failureReason = Reason-LuaExecutionFailure
-          $state.extensions[$idx].last_error = [string]$callResult.stdout
+          $state.extensions[$idx].last_error = [string]($callResult.stdout)
           throw ("lua hook call failed (exit={0})" -f [int]$callResult.exit_code)
         }
       }
@@ -374,13 +449,13 @@ try {
         $failureReason = Reason-ExtensionNotLoaded
         throw "extension is not loaded: $target"
       }
-      $entryPath = [string]$state.extensions[$idx].entry
+      $entryPath = [string]($state.extensions[$idx].entry)
       if (-not (Test-Path $entryPath)) {
         $failureReason = Reason-ExtensionMissing
         throw "extension entry missing: $entryPath"
       }
       $nextHash = (Get-FileHash -Algorithm SHA256 -Path $entryPath).Hash.ToLowerInvariant()
-      $currentHash = [string]$state.extensions[$idx].entry_hash
+      $currentHash = [string]($state.extensions[$idx].entry_hash)
       $needsReload = ($nextHash -ne $currentHash) -or [bool]$ForceReload
       if (-not $needsReload) {
         $failureReason = Reason-ReloadNotNeeded

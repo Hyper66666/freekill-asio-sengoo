@@ -61,6 +61,23 @@ function Write-EventLogLine([string]$eventLogPath, [string]$level, [string]$mess
   Add-Content -Path $eventLogPath -Encoding UTF8 -Value $line
 }
 
+function Resolve-ExtensionEntry([string]$packageDir) {
+  $candidates = @(
+    [ordered]@{ kind = "rpc_entry"; path = (Join-Path $packageDir "lua/server/rpc/entry.lua") },
+    [ordered]@{ kind = "package_init"; path = (Join-Path $packageDir "init.lua") },
+    [ordered]@{ kind = "lua_init"; path = (Join-Path $packageDir "lua/init.lua") }
+  )
+  foreach ($candidate in $candidates) {
+    if (Test-Path ([string]$candidate.path)) {
+      return [ordered]@{
+        entry_path = [string]$candidate.path
+        entry_kind = [string]$candidate.kind
+      }
+    }
+  }
+  return $null
+}
+
 function Assert-PackagePreflight([string]$packagesRootPath, [bool]$requireCore) {
   if (-not (Test-Path $packagesRootPath)) {
     throw "packages root not found: $packagesRootPath"
@@ -108,10 +125,12 @@ function Build-ExtensionSyncRegistry([string]$packagesRootPath, [string]$outputP
       if ($seen.ContainsKey($name)) {
         continue
       }
-      $entryPath = Join-Path $dir.FullName "lua/server/rpc/entry.lua"
-      if (-not (Test-Path $entryPath)) {
+      $entry = Resolve-ExtensionEntry -packageDir $dir.FullName
+      if ($null -eq $entry) {
         continue
       }
+      $entryPath = [string]$entry.entry_path
+      $entryKind = [string]$entry.entry_kind
       $entryHash = (Get-FileHash -Algorithm SHA256 -Path $entryPath).Hash.ToLowerInvariant()
       $record = [ordered]@{
         name = $name
@@ -120,6 +139,7 @@ function Build-ExtensionSyncRegistry([string]$packagesRootPath, [string]$outputP
         source_root = $resolvedRoot
         package_path = $dir.FullName
         entry = $entryPath
+        entry_kind = $entryKind
         hash = $entryHash
       }
       [void]$records.Add($record)
@@ -212,9 +232,28 @@ $resolvedExtensionSyncRegistryPath = if ([string]::IsNullOrWhiteSpace($Extension
 }
 $extensionSyncRegistry = $null
 if (-not [bool]$DisableAutoExtensionSyncRegistry) {
-  $extensionSyncRegistry = Build-ExtensionSyncRegistry `
-    -packagesRootPath $resolvedPackagesRoot `
-    -outputPath $resolvedExtensionSyncRegistryPath
+  $refreshScriptPath = Resolve-AbsolutePath -path "scripts/refresh_extension_sync_registry.ps1" -baseDir $scriptParentDir
+  if (Test-Path $refreshScriptPath) {
+    $refreshOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $refreshScriptPath `
+      -PackagesRoot $resolvedPackagesRoot `
+      -OutputPath $resolvedExtensionSyncRegistryPath `
+      -AsJson
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace(($refreshOutput -join [Environment]::NewLine))) {
+      $refreshReport = (($refreshOutput -join [Environment]::NewLine).Trim() | ConvertFrom-Json)
+      $extensionSyncRegistry = [ordered]@{
+        registry_path = [string]$refreshReport.output_path
+        extension_count = [int]$refreshReport.extension_count
+        extension_names = @($refreshReport.extension_names)
+        roots = @($refreshReport.scan_roots)
+      }
+    } else {
+      throw "extension sync registry refresh failed"
+    }
+  } else {
+    $extensionSyncRegistry = Build-ExtensionSyncRegistry `
+      -packagesRootPath $resolvedPackagesRoot `
+      -outputPath $resolvedExtensionSyncRegistryPath
+  }
 }
 
 $logMode = if ([bool]$effectiveNoRedirectLogs) { "none" } else { "file" }
