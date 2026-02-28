@@ -30,7 +30,13 @@ param(
   [switch]$NoRedirectLogs,
 
   [Parameter(Mandatory = $false)]
-  [int]$DetachedProbeMilliseconds = 1200
+  [int]$DetachedProbeMilliseconds = 1200,
+
+  [Parameter(Mandatory = $false)]
+  [string]$ExtensionSyncRegistryPath = "",
+
+  [Parameter(Mandatory = $false)]
+  [switch]$DisableAutoExtensionSyncRegistry
 )
 
 $ErrorActionPreference = "Stop"
@@ -73,6 +79,69 @@ function Assert-PackagePreflight([string]$packagesRootPath, [bool]$requireCore) 
   }
   if (-not (Test-Path $coreEntry)) {
     throw "required freekill-core entry missing: $coreEntry"
+  }
+}
+
+function Build-ExtensionSyncRegistry([string]$packagesRootPath, [string]$outputPath) {
+  $candidateRoots = New-Object System.Collections.Generic.List[string]
+  [void]$candidateRoots.Add($packagesRootPath)
+  $nestedRoot = Join-Path $packagesRootPath "packages"
+  if (Test-Path $nestedRoot) {
+    [void]$candidateRoots.Add($nestedRoot)
+  }
+
+  $seen = @{}
+  $records = New-Object System.Collections.Generic.List[object]
+  $resolvedRoots = New-Object System.Collections.Generic.List[string]
+  foreach ($root in $candidateRoots) {
+    if (-not (Test-Path $root)) {
+      continue
+    }
+    $resolvedRoot = (Resolve-Path $root).Path
+    [void]$resolvedRoots.Add($resolvedRoot)
+    $dirs = @(Get-ChildItem -Path $resolvedRoot -Directory -Force -ErrorAction SilentlyContinue)
+    foreach ($dir in $dirs) {
+      $name = [string]$dir.Name
+      if ([string]::IsNullOrWhiteSpace($name) -or $name.StartsWith(".")) {
+        continue
+      }
+      if ($seen.ContainsKey($name)) {
+        continue
+      }
+      $entryPath = Join-Path $dir.FullName "lua/server/rpc/entry.lua"
+      if (-not (Test-Path $entryPath)) {
+        continue
+      }
+      $entryHash = (Get-FileHash -Algorithm SHA256 -Path $entryPath).Hash.ToLowerInvariant()
+      $record = [ordered]@{
+        name = $name
+        enabled = $true
+        builtin = ($name -eq "freekill-core")
+        source_root = $resolvedRoot
+        package_path = $dir.FullName
+        entry = $entryPath
+        hash = $entryHash
+      }
+      [void]$records.Add($record)
+      $seen[$name] = $true
+    }
+  }
+
+  $sortedRecords = @($records | Sort-Object -Property name)
+  $jsonRecords = @($sortedRecords | ForEach-Object { $_ | ConvertTo-Json -Depth 6 -Compress })
+  $registryJson = if ($jsonRecords.Count -eq 0) {
+    "[]"
+  } else {
+    "[" + ($jsonRecords -join ",") + "]"
+  }
+  Ensure-ParentDir $outputPath
+  Set-Content -Path $outputPath -Encoding UTF8 -Value $registryJson
+
+  return [ordered]@{
+    registry_path = (Resolve-Path $outputPath).Path
+    extension_count = $sortedRecords.Count
+    extension_names = @($sortedRecords | ForEach-Object { [string]$_.name })
+    roots = @($resolvedRoots | Sort-Object -Unique)
   }
 }
 
@@ -136,106 +205,160 @@ Ensure-ParentDir $resolvedStdoutLogPath
 Ensure-ParentDir $resolvedStderrLogPath
 Ensure-ParentDir $resolvedEventLogPath
 
+$resolvedExtensionSyncRegistryPath = if ([string]::IsNullOrWhiteSpace($ExtensionSyncRegistryPath)) {
+  Join-Path $resolvedLogDir "extension_sync.registry.json"
+} else {
+  Resolve-AbsolutePath -path $ExtensionSyncRegistryPath -baseDir $scriptParentDir
+}
+$extensionSyncRegistry = $null
+if (-not [bool]$DisableAutoExtensionSyncRegistry) {
+  $extensionSyncRegistry = Build-ExtensionSyncRegistry `
+    -packagesRootPath $resolvedPackagesRoot `
+    -outputPath $resolvedExtensionSyncRegistryPath
+}
+
 $logMode = if ([bool]$effectiveNoRedirectLogs) { "none" } else { "file" }
 Write-EventLogLine `
   -eventLogPath $resolvedEventLogPath `
   -level "INFO" `
   -message ("launch_requested detached={0}; binary={1}; packages_root={2}; log_mode={3}" -f [bool]$Detached, $resolved, $resolvedPackagesRoot, $logMode)
 
-if ($Detached) {
+if ($null -ne $extensionSyncRegistry) {
+  Write-EventLogLine `
+    -eventLogPath $resolvedEventLogPath `
+    -level "INFO" `
+    -message ("extension_sync_registry_ready count={0}; path={1}" -f [int]$extensionSyncRegistry.extension_count, [string]$extensionSyncRegistry.registry_path)
+}
+
+$originalExtensionRegistryEnv = [string]$env:SENGOO_EXTENSION_REGISTRY
+$originalCoreEntryEnv = [string]$env:SENGOO_EXTENSION_CORE_ENTRY
+$resolvedCoreEntryPath = Join-Path $resolvedPackagesRoot "freekill-core/lua/server/rpc/entry.lua"
+if ($null -ne $extensionSyncRegistry) {
+  $env:SENGOO_EXTENSION_REGISTRY = [string]$extensionSyncRegistry.registry_path
+}
+if (Test-Path $resolvedCoreEntryPath) {
+  $env:SENGOO_EXTENSION_CORE_ENTRY = $resolvedCoreEntryPath
+}
+
+try {
+  if ($Detached) {
+    $startArgs = @{
+      FilePath = $resolved
+      PassThru = $true
+      WorkingDirectory = $scriptParentDir
+    }
+    if (-not [bool]$effectiveNoRedirectLogs) {
+      $startArgs["RedirectStandardOutput"] = $resolvedStdoutLogPath
+      $startArgs["RedirectStandardError"] = $resolvedStderrLogPath
+    }
+    $proc = Start-Process @startArgs
+    Write-EventLogLine `
+      -eventLogPath $resolvedEventLogPath `
+      -level "INFO" `
+      -message ("launch_started pid={0}" -f $proc.Id)
+
+    if ($DetachedProbeMilliseconds -gt 0) {
+      Start-Sleep -Milliseconds $DetachedProbeMilliseconds
+      $proc.Refresh()
+      if ($proc.HasExited) {
+        $detachedExitCode = [int]$proc.ExitCode
+        if ($detachedExitCode -eq 0) {
+          Write-EventLogLine `
+            -eventLogPath $resolvedEventLogPath `
+            -level "ERROR" `
+            -message ("detached_process_exited_early exit={0}" -f $detachedExitCode)
+        } else {
+          Write-EventLogLine `
+            -eventLogPath $resolvedEventLogPath `
+            -level "ERROR" `
+            -message ("detached_process_exited_nonzero exit={0}" -f $detachedExitCode)
+        }
+        Write-Output ("NATIVE_RUNTIME_DETACHED_HEALTHY=False")
+        Write-Output ("NATIVE_RUNTIME_EXIT={0}" -f $detachedExitCode)
+        Write-Output ("NATIVE_RUNTIME_BINARY={0}" -f $resolved)
+        Write-Output ("NATIVE_RUNTIME_PACKAGES_ROOT={0}" -f $resolvedPackagesRoot)
+        Write-Output ("NATIVE_RUNTIME_LOG_MODE={0}" -f $logMode)
+        if ($null -ne $extensionSyncRegistry) {
+          Write-Output ("NATIVE_RUNTIME_EXTENSION_REGISTRY={0}" -f [string]$extensionSyncRegistry.registry_path)
+          Write-Output ("NATIVE_RUNTIME_EXTENSION_COUNT={0}" -f [int]$extensionSyncRegistry.extension_count)
+        }
+        if (-not [bool]$effectiveNoRedirectLogs) {
+          Write-Output ("NATIVE_RUNTIME_STDOUT_LOG={0}" -f $resolvedStdoutLogPath)
+          Write-Output ("NATIVE_RUNTIME_STDERR_LOG={0}" -f $resolvedStderrLogPath)
+        }
+        Write-Output ("NATIVE_RUNTIME_EVENT_LOG={0}" -f $resolvedEventLogPath)
+        if ($detachedExitCode -ne 0) {
+          exit $detachedExitCode
+        }
+        exit 1
+      }
+    }
+
+    Write-Output ("NATIVE_RUNTIME_DETACHED_HEALTHY=True")
+    Write-Output ("NATIVE_RUNTIME_STARTED_PID={0}" -f $proc.Id)
+    Write-Output ("NATIVE_RUNTIME_BINARY={0}" -f $resolved)
+    Write-Output ("NATIVE_RUNTIME_PACKAGES_ROOT={0}" -f $resolvedPackagesRoot)
+    Write-Output ("NATIVE_RUNTIME_LOG_MODE={0}" -f $logMode)
+    if ($null -ne $extensionSyncRegistry) {
+      Write-Output ("NATIVE_RUNTIME_EXTENSION_REGISTRY={0}" -f [string]$extensionSyncRegistry.registry_path)
+      Write-Output ("NATIVE_RUNTIME_EXTENSION_COUNT={0}" -f [int]$extensionSyncRegistry.extension_count)
+    }
+    if (-not [bool]$effectiveNoRedirectLogs) {
+      Write-Output ("NATIVE_RUNTIME_STDOUT_LOG={0}" -f $resolvedStdoutLogPath)
+      Write-Output ("NATIVE_RUNTIME_STDERR_LOG={0}" -f $resolvedStderrLogPath)
+    }
+    Write-Output ("NATIVE_RUNTIME_EVENT_LOG={0}" -f $resolvedEventLogPath)
+    exit 0
+  }
+
   $startArgs = @{
     FilePath = $resolved
     PassThru = $true
+    Wait = $true
     WorkingDirectory = $scriptParentDir
   }
   if (-not [bool]$effectiveNoRedirectLogs) {
     $startArgs["RedirectStandardOutput"] = $resolvedStdoutLogPath
     $startArgs["RedirectStandardError"] = $resolvedStderrLogPath
+  } else {
+    $startArgs["NoNewWindow"] = $true
   }
   $proc = Start-Process @startArgs
-  Write-EventLogLine `
-    -eventLogPath $resolvedEventLogPath `
-    -level "INFO" `
-    -message ("launch_started pid={0}" -f $proc.Id)
-
-  if ($DetachedProbeMilliseconds -gt 0) {
-    Start-Sleep -Milliseconds $DetachedProbeMilliseconds
-    $proc.Refresh()
-    if ($proc.HasExited) {
-      $detachedExitCode = [int]$proc.ExitCode
-      if ($detachedExitCode -eq 0) {
-        Write-EventLogLine `
-          -eventLogPath $resolvedEventLogPath `
-          -level "ERROR" `
-          -message ("detached_process_exited_early exit={0}" -f $detachedExitCode)
-      } else {
-        Write-EventLogLine `
-          -eventLogPath $resolvedEventLogPath `
-          -level "ERROR" `
-          -message ("detached_process_exited_nonzero exit={0}" -f $detachedExitCode)
-      }
-      Write-Output ("NATIVE_RUNTIME_DETACHED_HEALTHY=False")
-      Write-Output ("NATIVE_RUNTIME_EXIT={0}" -f $detachedExitCode)
-      Write-Output ("NATIVE_RUNTIME_BINARY={0}" -f $resolved)
-      Write-Output ("NATIVE_RUNTIME_PACKAGES_ROOT={0}" -f $resolvedPackagesRoot)
-      Write-Output ("NATIVE_RUNTIME_LOG_MODE={0}" -f $logMode)
-      if (-not [bool]$effectiveNoRedirectLogs) {
-        Write-Output ("NATIVE_RUNTIME_STDOUT_LOG={0}" -f $resolvedStdoutLogPath)
-        Write-Output ("NATIVE_RUNTIME_STDERR_LOG={0}" -f $resolvedStderrLogPath)
-      }
-      Write-Output ("NATIVE_RUNTIME_EVENT_LOG={0}" -f $resolvedEventLogPath)
-      if ($detachedExitCode -ne 0) {
-        exit $detachedExitCode
-      }
-      exit 1
-    }
+  $exitCode = [int]$proc.ExitCode
+  if ($exitCode -eq 0) {
+    Write-EventLogLine `
+      -eventLogPath $resolvedEventLogPath `
+      -level "INFO" `
+      -message ("process_exited_ok exit={0}" -f $exitCode)
+  } else {
+    Write-EventLogLine `
+      -eventLogPath $resolvedEventLogPath `
+      -level "ERROR" `
+      -message ("process_exited_nonzero exit={0}" -f $exitCode)
   }
-
-  Write-Output ("NATIVE_RUNTIME_DETACHED_HEALTHY=True")
-  Write-Output ("NATIVE_RUNTIME_STARTED_PID={0}" -f $proc.Id)
+  Write-Output ("NATIVE_RUNTIME_EXIT={0}" -f $exitCode)
   Write-Output ("NATIVE_RUNTIME_BINARY={0}" -f $resolved)
   Write-Output ("NATIVE_RUNTIME_PACKAGES_ROOT={0}" -f $resolvedPackagesRoot)
   Write-Output ("NATIVE_RUNTIME_LOG_MODE={0}" -f $logMode)
+  if ($null -ne $extensionSyncRegistry) {
+    Write-Output ("NATIVE_RUNTIME_EXTENSION_REGISTRY={0}" -f [string]$extensionSyncRegistry.registry_path)
+    Write-Output ("NATIVE_RUNTIME_EXTENSION_COUNT={0}" -f [int]$extensionSyncRegistry.extension_count)
+  }
   if (-not [bool]$effectiveNoRedirectLogs) {
     Write-Output ("NATIVE_RUNTIME_STDOUT_LOG={0}" -f $resolvedStdoutLogPath)
     Write-Output ("NATIVE_RUNTIME_STDERR_LOG={0}" -f $resolvedStderrLogPath)
   }
   Write-Output ("NATIVE_RUNTIME_EVENT_LOG={0}" -f $resolvedEventLogPath)
-  exit 0
+  exit $exitCode
+} finally {
+  if ([string]::IsNullOrWhiteSpace($originalExtensionRegistryEnv)) {
+    Remove-Item Env:SENGOO_EXTENSION_REGISTRY -ErrorAction SilentlyContinue
+  } else {
+    $env:SENGOO_EXTENSION_REGISTRY = $originalExtensionRegistryEnv
+  }
+  if ([string]::IsNullOrWhiteSpace($originalCoreEntryEnv)) {
+    Remove-Item Env:SENGOO_EXTENSION_CORE_ENTRY -ErrorAction SilentlyContinue
+  } else {
+    $env:SENGOO_EXTENSION_CORE_ENTRY = $originalCoreEntryEnv
+  }
 }
-
-$startArgs = @{
-  FilePath = $resolved
-  PassThru = $true
-  Wait = $true
-  WorkingDirectory = $scriptParentDir
-}
-if (-not [bool]$effectiveNoRedirectLogs) {
-  $startArgs["RedirectStandardOutput"] = $resolvedStdoutLogPath
-  $startArgs["RedirectStandardError"] = $resolvedStderrLogPath
-} else {
-  $startArgs["NoNewWindow"] = $true
-}
-$proc = Start-Process @startArgs
-$exitCode = [int]$proc.ExitCode
-if ($exitCode -eq 0) {
-  Write-EventLogLine `
-    -eventLogPath $resolvedEventLogPath `
-    -level "INFO" `
-    -message ("process_exited_ok exit={0}" -f $exitCode)
-} else {
-  Write-EventLogLine `
-    -eventLogPath $resolvedEventLogPath `
-    -level "ERROR" `
-    -message ("process_exited_nonzero exit={0}" -f $exitCode)
-}
-Write-Output ("NATIVE_RUNTIME_EXIT={0}" -f $exitCode)
-Write-Output ("NATIVE_RUNTIME_BINARY={0}" -f $resolved)
-Write-Output ("NATIVE_RUNTIME_PACKAGES_ROOT={0}" -f $resolvedPackagesRoot)
-Write-Output ("NATIVE_RUNTIME_LOG_MODE={0}" -f $logMode)
-if (-not [bool]$effectiveNoRedirectLogs) {
-  Write-Output ("NATIVE_RUNTIME_STDOUT_LOG={0}" -f $resolvedStdoutLogPath)
-  Write-Output ("NATIVE_RUNTIME_STDERR_LOG={0}" -f $resolvedStderrLogPath)
-}
-Write-Output ("NATIVE_RUNTIME_EVENT_LOG={0}" -f $resolvedEventLogPath)
-exit $exitCode
