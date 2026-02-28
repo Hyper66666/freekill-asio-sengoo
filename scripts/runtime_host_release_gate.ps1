@@ -9,12 +9,6 @@ param(
   [string]$NativeAcceptanceScriptPath = "scripts/runtime_host_acceptance_native.ps1",
 
   [Parameter(Mandatory = $false)]
-  [string]$LegacyAcceptanceScriptPath = "scripts/runtime_host_acceptance.ps1",
-
-  [Parameter(Mandatory = $false)]
-  [switch]$UseLegacyPythonAcceptance,
-
-  [Parameter(Mandatory = $false)]
   [bool]$IncludeNativeSoak = $true,
 
   [Parameter(Mandatory = $false)]
@@ -101,48 +95,28 @@ function Ensure-ParentDir([string]$path) {
 }
 
 $startUtc = (Get-Date).ToUniversalTime()
-if ($UseLegacyPythonAcceptance) {
-  if (-not (Test-Path $LegacyAcceptanceScriptPath)) {
-    throw "legacy acceptance script not found: $LegacyAcceptanceScriptPath"
-  }
-
-  powershell -NoProfile -ExecutionPolicy Bypass -File $LegacyAcceptanceScriptPath `
-    -SgcPath $SgcPath `
-    -IncludeWatchdogSmoke `
-    -IncludeSoak `
-    -SoakDurationSeconds $SoakDurationSeconds | Out-Null
-
-  if ($LASTEXITCODE -ne 0) {
-    throw "release gate failed: legacy acceptance returned non-zero"
-  }
-} else {
-  if (-not (Test-Path $NativeAcceptanceScriptPath)) {
-    throw "native acceptance script not found: $NativeAcceptanceScriptPath"
-  }
-
-  & $NativeAcceptanceScriptPath `
-    -SgcPath $SgcPath `
-    -IncludePackageCompatibility $IncludePackageCompatibility `
-    -PackageCompatibilityScriptPath $PackageCompatibilityScriptPath `
-    -PackageCompatibilityReportPath $PackageCompatibilityReportPath | Out-Null
-
-  if ($LASTEXITCODE -ne 0) {
-    throw "release gate failed: native acceptance returned non-zero"
-  }
+if (-not (Test-Path $NativeAcceptanceScriptPath)) {
+  throw "native acceptance script not found: $NativeAcceptanceScriptPath"
 }
 
-$acceptancePath = if ($UseLegacyPythonAcceptance) {
-  ".tmp/runtime_host/runtime_host_acceptance.json"
-} else {
-  ".tmp/runtime_host/runtime_host_acceptance_native.json"
+& $NativeAcceptanceScriptPath `
+  -SgcPath $SgcPath `
+  -IncludePackageCompatibility $IncludePackageCompatibility `
+  -PackageCompatibilityScriptPath $PackageCompatibilityScriptPath `
+  -PackageCompatibilityReportPath $PackageCompatibilityReportPath | Out-Null
+
+if ($LASTEXITCODE -ne 0) {
+  throw "release gate failed: native acceptance returned non-zero"
 }
+
+$acceptancePath = ".tmp/runtime_host/runtime_host_acceptance_native.json"
 
 if (-not (Test-Path $acceptancePath)) {
   throw "release gate failed: missing acceptance report $acceptancePath"
 }
 
 $acceptance = Get-Content -Raw $acceptancePath | ConvertFrom-Json
-$packageCompatExecuted = (-not $UseLegacyPythonAcceptance) -and $IncludePackageCompatibility
+$packageCompatExecuted = $IncludePackageCompatibility
 $packageCompatOk = $true
 $packageCompat = $null
 if ($packageCompatExecuted) {
@@ -153,7 +127,7 @@ if ($packageCompatExecuted) {
   $packageCompatOk = [bool]$packageCompat.ok
 }
 
-$abiHookExecuted = (-not $UseLegacyPythonAcceptance) -and (-not $SkipAbiHookCompatibility)
+$abiHookExecuted = -not $SkipAbiHookCompatibility
 $abiHookPass = $true
 $abiHookReportPass = $true
 $abiHook = $null
@@ -190,7 +164,7 @@ if ($abiHookExecuted) {
   }
 }
 
-$luaLifecycleExecuted = (-not $UseLegacyPythonAcceptance) -and $IncludeLuaLifecycleSmoke
+$luaLifecycleExecuted = $IncludeLuaLifecycleSmoke
 $luaLifecycleOk = $true
 $luaLifecycle = $null
 if ($luaLifecycleExecuted) {
@@ -209,7 +183,7 @@ if ($luaLifecycleExecuted) {
   $luaLifecycleOk = [bool]$luaLifecycle.pass
 }
 
-$protobufRpcExecuted = (-not $UseLegacyPythonAcceptance) -and $IncludeProtobufRpcRegression
+$protobufRpcExecuted = $IncludeProtobufRpcRegression
 $protobufRpcOk = $true
 $protobufRpc = $null
 if ($protobufRpcExecuted) {
@@ -229,7 +203,7 @@ if ($protobufRpcExecuted) {
   $protobufRpcOk = [bool]$protobufRpc.pass
 }
 
-$extensionMatrixExecuted = (-not $UseLegacyPythonAcceptance) -and $IncludeExtensionMatrix
+$extensionMatrixExecuted = $IncludeExtensionMatrix
 $extensionMatrixOk = $true
 $extensionMatrix = $null
 if ($extensionMatrixExecuted) {
@@ -256,7 +230,7 @@ if ($extensionMatrixExecuted) {
   $extensionMatrixOk = [bool]$extensionMatrix.pass
 }
 
-$dependencyAuditExecuted = -not $UseLegacyPythonAcceptance
+$dependencyAuditExecuted = $true
 $dependencyAuditOk = $true
 $dependencyAudit = $null
 if ($dependencyAuditExecuted) {
@@ -275,7 +249,7 @@ if ($dependencyAuditExecuted) {
   $dependencyAuditOk = [bool]$dependencyAudit.pass
 }
 
-$nativeSoakExecuted = (-not $UseLegacyPythonAcceptance) -and $IncludeNativeSoak
+$nativeSoakExecuted = $IncludeNativeSoak
 $nativeSoakOk = $true
 $nativeSoak = $null
 if ($nativeSoakExecuted) {
@@ -302,7 +276,7 @@ $gate = [ordered]@{
   generated_at_utc = (Get-Date).ToUniversalTime().ToString("o")
   started_at_utc = $startUtc.ToString("o")
   overall_ok = $overallOk
-  mode = if ($UseLegacyPythonAcceptance) { "legacy-python" } else { "native" }
+  mode = "native"
   soak_duration_seconds = $SoakDurationSeconds
   acceptance_report_path = (Resolve-Path $acceptancePath).Path
   acceptance = $acceptance

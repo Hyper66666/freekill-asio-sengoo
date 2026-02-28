@@ -19,8 +19,10 @@
 - 包兼容预检：`packages/init.sql` + `packages/freekill-core/lua/server/rpc/entry.lua`
 - Lua 扩展生命周期链路：`discover/load/call/hot_reload/unload`
 - 原生 Protobuf/RPC 回归（PowerShell，无 Python）
+- 登录鉴权增强：用户库校验（支持明文与 `SHA256+salt`）、同名重复登录踢线、白名单/黑词用户名策略、过期封禁自动解封回写
 - 扩展实测矩阵（逐扩展 install/enable/run/hot_reload/unload/upgrade）
 - ABI/Hook 清单、映射与校验脚本（可接 release gate enforce）
+- legacy Python runtime 链路脚本已移除，仓库默认仅维护 native 运行链
 
 ## 目录结构
 
@@ -107,6 +109,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_runtime_host_n
 - 当注册表为空/缺失时，若存在 `packages/freekill-core/lua/server/rpc/entry.lua`，会回退同步 `freekill-core` 基线扩展信息。
 - native runtime 会按注册表尝试执行扩展引导钩子（优先调用 `on_server_start`，其次 `bootstrap` / `init`），用于把原生 Lua 扩展接入服务启动链。
 - 可通过环境变量 `SENGOO_EXTENSION_BOOTSTRAP=0` 关闭该行为；Lua 解释器路径可用 `SENGOO_LUA_EXE` 指定（默认 `lua5.4`）。
+- 如需兼容原客户端 RSA 密码包，可启用 `SENGOO_AUTH_RSA_DECRYPT_ENABLE=1`，并配置：
+  - `SENGOO_AUTH_OPENSSL_EXE`（默认 `openssl`）
+  - `SENGOO_AUTH_RSA_PRIVATE_KEY_PATH`（默认 `server/rsa`）
 
 默认会写入日志文件（可直接排障）：
 - 事件日志：`.tmp/runtime_host/native_runtime.events.log`
@@ -156,6 +161,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/lua_extension_lifecy
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_protobuf_rpc_regression_native.ps1 -StartRuntime
+```
+
+- 鉴权用户库 smoke（含同名踢线、用户名白名单/黑词）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/auth_userdb_smoke_native.ps1
 ```
 
 - 扩展实测矩阵：

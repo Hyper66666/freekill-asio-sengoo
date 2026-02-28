@@ -459,11 +459,19 @@ $runtimeProc = $null
 $runtimeStarted = $false
 $runtimeBootOk = $true
 $runtimeBootError = ""
+$hadAuthPreludeEnv = $false
+$previousAuthPreludeEnv = $null
 
 try {
   if ([bool]$StartRuntime) {
     if (-not (Test-Path $resolvedBinaryPath)) {
       throw "native runtime binary not found: $resolvedBinaryPath"
+    }
+    $hadAuthPreludeEnv = Test-Path Env:SENGOO_AUTH_SEND_NETWORK_DELAY
+    if ($hadAuthPreludeEnv) {
+      $previousAuthPreludeEnv = [string]$env:SENGOO_AUTH_SEND_NETWORK_DELAY
+    } else {
+      $env:SENGOO_AUTH_SEND_NETWORK_DELAY = "0"
     }
     $runtimeProc = Start-Process -FilePath $resolvedBinaryPath -PassThru
     Start-Sleep -Milliseconds $StartupWaitMs
@@ -611,5 +619,10 @@ try {
     } catch {
       # best effort cleanup
     }
+  }
+  if ($hadAuthPreludeEnv) {
+    $env:SENGOO_AUTH_SEND_NETWORK_DELAY = $previousAuthPreludeEnv
+  } else {
+    Remove-Item Env:SENGOO_AUTH_SEND_NETWORK_DELAY -ErrorAction SilentlyContinue
   }
 }

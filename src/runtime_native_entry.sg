@@ -1,8 +1,17 @@
 extern "C" {
     pub fn sengoo_sleep_ms(ms: i64) -> i64;
+    pub fn sengoo_runtime_tcp_port() -> i64;
+    pub fn sengoo_runtime_udp_port() -> i64;
+    pub fn sengoo_runtime_tick_sleep_ms() -> i64;
+    pub fn sengoo_runtime_busy_sleep_ms() -> i64;
+    pub fn sengoo_runtime_max_packet_bytes() -> i64;
+    pub fn sengoo_runtime_max_error_count() -> i64;
+    pub fn sengoo_runtime_max_accept_per_tick() -> i64;
     pub fn sengoo_tcp_listener_bind(port: i64) -> i64;
     pub fn sengoo_tcp_listener_accept(listener_handle: i64) -> i64;
     pub fn sengoo_tcp_connection_echo_once(conn_handle: i64, max_bytes: i64) -> i64;
+    pub fn sengoo_tcp_runtime_step(listener_handle: i64, max_bytes: i64, max_accept_per_tick: i64) -> i64;
+    pub fn sengoo_tcp_connection_close_all() -> i64;
     pub fn sengoo_tcp_connection_close(conn_handle: i64) -> i64;
     pub fn sengoo_tcp_listener_close(listener_handle: i64) -> i64;
     pub fn sengoo_udp_socket_bind(port: i64) -> i64;
@@ -11,39 +20,45 @@ extern "C" {
 }
 
 def default_tcp_port() -> i64
-ensures result == 9527
+ensures result >= 1 && result <= 65535
 {
-    9527
+    sengoo_runtime_tcp_port()
 }
 
 def default_udp_port() -> i64
-ensures result == 9528
+ensures result >= 1 && result <= 65535
 {
-    9528
+    sengoo_runtime_udp_port()
 }
 
 def default_tick_sleep_ms() -> i64
-ensures result == 20
+ensures result > 0
 {
-    20
+    sengoo_runtime_tick_sleep_ms()
 }
 
 def default_busy_sleep_ms() -> i64
-ensures result == 1
+ensures result > 0
 {
-    1
+    sengoo_runtime_busy_sleep_ms()
 }
 
 def default_max_packet_bytes() -> i64
-ensures result == 65536
+ensures result >= 256 && result <= 65536
 {
-    65536
+    sengoo_runtime_max_packet_bytes()
 }
 
 def default_max_error_count() -> i64
-ensures result == 200
+ensures result > 0
 {
-    200
+    sengoo_runtime_max_error_count()
+}
+
+def default_max_accept_per_tick() -> i64
+ensures result >= 1 && result <= 128
+{
+    sengoo_runtime_max_accept_per_tick()
 }
 
 def is_valid_port_flag(port: i64) -> i64
@@ -95,6 +110,7 @@ ensures result >= 0
     let tick_sleep_ms = normalize_positive(default_tick_sleep_ms(), 10);
     let busy_sleep_ms = normalize_positive(default_busy_sleep_ms(), 1);
     let max_error_count = normalize_positive(default_max_error_count(), 32);
+    let max_accept_per_tick = normalize_positive(default_max_accept_per_tick(), 1);
 
     if is_valid_port_flag(tcp_port) == 0 {
         return 2;
@@ -102,10 +118,6 @@ ensures result >= 0
     if is_valid_port_flag(udp_port) == 0 {
         return 3;
     }
-    if tcp_port == udp_port {
-        return 4;
-    }
-
     let tcp_listener = sengoo_tcp_listener_bind(tcp_port);
     if tcp_listener <= 0 {
         return 101;
@@ -118,34 +130,16 @@ ensures result >= 0
     }
 
     let running_flag = 1;
-    let active_tcp_connection = 0;
     let error_count = 0;
 
     while running_flag > 0 {
         let made_progress = 0;
 
-        if active_tcp_connection <= 0 {
-            let accept_rc = sengoo_tcp_listener_accept(tcp_listener);
-            if accept_rc > 0 {
-                active_tcp_connection = accept_rc;
-                made_progress = 1;
-            } else if accept_rc < 0 {
-                error_count = error_count + 1;
-            }
-        }
-
-        if active_tcp_connection > 0 {
-            let tcp_io_rc = sengoo_tcp_connection_echo_once(active_tcp_connection, max_packet_bytes);
-            if tcp_io_rc > 0 {
-                made_progress = 1;
-            } else if tcp_io_rc < 0 {
-                let _close_tcp_rc = sengoo_tcp_connection_close(active_tcp_connection);
-                active_tcp_connection = 0;
-                made_progress = 1;
-                if is_tcp_disconnect_flag(tcp_io_rc) == 0 {
-                    error_count = error_count + 1;
-                }
-            }
+        let tcp_step_rc = sengoo_tcp_runtime_step(tcp_listener, max_packet_bytes, max_accept_per_tick);
+        if tcp_step_rc > 0 {
+            made_progress = 1;
+        } else if tcp_step_rc < 0 {
+            error_count = error_count + 1;
         }
 
         let udp_io_rc = sengoo_udp_socket_echo_once(udp_socket, max_packet_bytes);
@@ -164,9 +158,7 @@ ensures result >= 0
         }
     }
 
-    if active_tcp_connection > 0 {
-        let _close_active_tcp_rc = sengoo_tcp_connection_close(active_tcp_connection);
-    }
+    let _close_all_tcp_rc = sengoo_tcp_connection_close_all();
     let _close_udp_rc = sengoo_udp_socket_close(udp_socket);
     let _close_listener_rc = sengoo_tcp_listener_close(tcp_listener);
 
