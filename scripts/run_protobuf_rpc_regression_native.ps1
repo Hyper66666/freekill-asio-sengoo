@@ -85,6 +85,59 @@ function Get-ByteDiff([byte[]]$expected, [byte[]]$actual) {
   }
 }
 
+function Find-ByteSubsequence([byte[]]$haystack, [byte[]]$needle) {
+  if ($null -eq $needle -or $needle.Length -eq 0) {
+    return [ordered]@{
+      match = $true
+      first_match_offset = 0
+      needle_length = 0
+      haystack_length = if ($null -eq $haystack) { 0 } else { $haystack.Length }
+      needle_hex = ""
+      haystack_hex = (Convert-BytesToHex $haystack)
+    }
+  }
+  if ($null -eq $haystack -or $haystack.Length -lt $needle.Length) {
+    return [ordered]@{
+      match = $false
+      first_match_offset = -1
+      needle_length = $needle.Length
+      haystack_length = if ($null -eq $haystack) { 0 } else { $haystack.Length }
+      needle_hex = (Convert-BytesToHex $needle)
+      haystack_hex = (Convert-BytesToHex $haystack)
+    }
+  }
+
+  $maxOffset = $haystack.Length - $needle.Length
+  for ($offset = 0; $offset -le $maxOffset; $offset++) {
+    $ok = $true
+    for ($i = 0; $i -lt $needle.Length; $i++) {
+      if ($haystack[$offset + $i] -ne $needle[$i]) {
+        $ok = $false
+        break
+      }
+    }
+    if ($ok) {
+      return [ordered]@{
+        match = $true
+        first_match_offset = $offset
+        needle_length = $needle.Length
+        haystack_length = $haystack.Length
+        needle_hex = (Convert-BytesToHex $needle)
+        haystack_hex = (Convert-BytesToHex $haystack)
+      }
+    }
+  }
+
+  return [ordered]@{
+    match = $false
+    first_match_offset = -1
+    needle_length = $needle.Length
+    haystack_length = $haystack.Length
+    needle_hex = (Convert-BytesToHex $needle)
+    haystack_hex = (Convert-BytesToHex $haystack)
+  }
+}
+
 function Decode-Varint([byte[]]$bytes, [int]$offset) {
   $value = [int64]0
   $shift = 0
@@ -432,6 +485,18 @@ function Get-OptionalString([object]$obj, [string]$name, [string]$fallback) {
   return [string]$value
 }
 
+function Get-OptionalInt([object]$obj, [string]$name, [int]$fallback) {
+  $raw = Get-OptionalString $obj $name ""
+  if ([string]::IsNullOrWhiteSpace($raw)) {
+    return $fallback
+  }
+  $parsed = 0
+  if ([int]::TryParse($raw, [ref]$parsed)) {
+    return $parsed
+  }
+  return $fallback
+}
+
 $scriptDir = if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
   (Resolve-Path $PSScriptRoot).Path
 } else {
@@ -497,15 +562,24 @@ try {
     $requestHex = Get-OptionalString $case "request_hex" ""
     $requestUtf8 = Get-OptionalString $case "request_utf8" ""
     $expectedUtf8 = Get-OptionalString $case "expected_response_utf8" ""
+    $matchMode = (Get-OptionalString $case "match_mode" "exact").ToLowerInvariant()
+    $expectedContainsHex = Get-OptionalString $case "expected_response_contains_hex" ""
+    $expectedContainsUtf8 = Get-OptionalString $case "expected_response_contains_utf8" ""
+    $responseCaptureBytes = Get-OptionalInt $case "response_capture_bytes" 0
 
     $requestBytes = [byte[]]@()
     $expectedBytes = [byte[]]@()
+    $containsBytes = [byte[]]@()
     if ($kind -eq "rpc_text") {
       $requestBytes = [System.Text.Encoding]::UTF8.GetBytes($requestUtf8)
       if ([string]::IsNullOrWhiteSpace($expectedUtf8)) {
         $expectedUtf8 = $requestUtf8
       }
       $expectedBytes = [System.Text.Encoding]::UTF8.GetBytes($expectedUtf8)
+      if ([string]::IsNullOrWhiteSpace($expectedContainsUtf8)) {
+        $expectedContainsUtf8 = $expectedUtf8
+      }
+      $containsBytes = [System.Text.Encoding]::UTF8.GetBytes($expectedContainsUtf8)
     } else {
       $requestBytes = Convert-HexToBytes $requestHex
       if ([string]::IsNullOrWhiteSpace($expectedHex)) {
@@ -513,6 +587,29 @@ try {
       } else {
         $expectedBytes = Convert-HexToBytes $expectedHex
       }
+      if ([string]::IsNullOrWhiteSpace($expectedContainsHex)) {
+        $expectedContainsHex = $expectedHex
+      }
+      if ([string]::IsNullOrWhiteSpace($expectedContainsHex)) {
+        $containsBytes = $expectedBytes
+      } else {
+        $containsBytes = Convert-HexToBytes $expectedContainsHex
+      }
+    }
+
+    if ($matchMode -ne "exact" -and $matchMode -ne "contains") {
+      throw ("unsupported match_mode: {0} in case {1}" -f $matchMode, $caseId)
+    }
+
+    $responseReadBytes = $expectedBytes.Length
+    if ($responseReadBytes -le 0) {
+      $responseReadBytes = [Math]::Max(512, $containsBytes.Length)
+    }
+    if ($matchMode -eq "contains") {
+      if ($responseCaptureBytes -le 0) {
+        $responseCaptureBytes = [Math]::Max(2048, [Math]::Max($responseReadBytes, $containsBytes.Length))
+      }
+      $responseReadBytes = $responseCaptureBytes
     }
 
     $casePass = $false
@@ -528,31 +625,41 @@ try {
       }
 
       if ($transport -eq "tcp") {
-        $responseBytes = Invoke-TcpCase -targetHost $EndpointHost -port $port -requestBytes $requestBytes -readBytes $expectedBytes.Length -readTimeoutMs $ReadTimeoutMs
+        $responseBytes = Invoke-TcpCase -targetHost $EndpointHost -port $port -requestBytes $requestBytes -readBytes $responseReadBytes -readTimeoutMs $ReadTimeoutMs
       } elseif ($transport -eq "udp") {
         $responseBytes = Invoke-UdpCase -targetHost $EndpointHost -port $port -requestBytes $requestBytes -readTimeoutMs $ReadTimeoutMs
       } else {
         throw ("unsupported transport: {0}" -f $transport)
       }
 
-      $byteDiff = Get-ByteDiff -expected $expectedBytes -actual $responseBytes
-      if (-not [bool]$byteDiff.match) {
-        $reasonCode = 9703
-        $reasonText = "byte mismatch"
+      if ($matchMode -eq "contains") {
+        $byteDiff = Find-ByteSubsequence -haystack $responseBytes -needle $containsBytes
+        if (-not [bool]$byteDiff.match) {
+          $reasonCode = 9705
+          $reasonText = "response missing expected subsequence"
+        } else {
+          $casePass = $true
+        }
       } else {
-        if ($kind -eq "protobuf") {
-          if ([string]::IsNullOrWhiteSpace($semanticMode)) {
-            $semanticMode = "echo_ping"
-          }
-          $semantic = Test-ProtobufSemantic -mode $semanticMode -requestBytes $requestBytes -responseBytes $responseBytes
-          if (-not [bool]$semantic.ok) {
-            $reasonCode = 9704
-            $reasonText = [string]$semantic.reason
+        $byteDiff = Get-ByteDiff -expected $expectedBytes -actual $responseBytes
+        if (-not [bool]$byteDiff.match) {
+          $reasonCode = 9703
+          $reasonText = "byte mismatch"
+        } else {
+          if ($kind -eq "protobuf") {
+            if ([string]::IsNullOrWhiteSpace($semanticMode)) {
+              $semanticMode = "echo_ping"
+            }
+            $semantic = Test-ProtobufSemantic -mode $semanticMode -requestBytes $requestBytes -responseBytes $responseBytes
+            if (-not [bool]$semantic.ok) {
+              $reasonCode = 9704
+              $reasonText = [string]$semantic.reason
+            } else {
+              $casePass = $true
+            }
           } else {
             $casePass = $true
           }
-        } else {
-          $casePass = $true
         }
       }
     } catch {
@@ -573,9 +680,11 @@ try {
       pass = $casePass
       reason_code = $reasonCode
       reason = $reasonText
+      match_mode = $matchMode
       request_hex = (Convert-BytesToHex $requestBytes)
       response_hex = (Convert-BytesToHex $responseBytes)
       expected_response_hex = (Convert-BytesToHex $expectedBytes)
+      expected_response_contains_hex = (Convert-BytesToHex $containsBytes)
       byte_diff = $byteDiff
       semantic = $semantic
     }

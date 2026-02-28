@@ -27,6 +27,26 @@
       "port": 9527,
       "request_utf8": "M1_CONN_PING\n",
       "expected_response_utf8": "M1_CONN_PING\n"
+    },
+    {
+      "id": "tcp-cbor-preauth-rejects-non-setup",
+      "kind": "cbor_wire",
+      "transport": "tcp",
+      "port": 9527,
+      "request_hex": "84011901124470696e6740",
+      "match_mode": "contains",
+      "expected_response_contains_hex": "494e56414c494420534554555020535452494e47",
+      "response_capture_bytes": 1024
+    },
+    {
+      "id": "tcp-cbor-setup-then-ping-pipeline",
+      "kind": "cbor_wire",
+      "transport": "tcp",
+      "port": 9527,
+      "request_hex": "8421190412455365747570518543626f7440417846302e352e3139417584011901124470696e6740",
+      "match_mode": "contains",
+      "expected_response_contains_hex": "84011902124470696e6744504f4e47",
+      "response_capture_bytes": 8192
     }
   ]
 }

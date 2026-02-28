@@ -2470,8 +2470,35 @@ static int sg_handle_cbor_wire_packet(long long conn_handle, sg_socket_t socket,
     }
 
     if ((packet->packet_type & SG_PACKET_TYPE_REQUEST) != 0) {
+        int close_after_reply = 0;
+        int reply_payload_major = packet->payload_major;
+        const unsigned char* reply_payload_ptr = packet->payload_ptr;
+        size_t reply_payload_len = packet->payload_len;
+        unsigned char reply_payload_local[256];
+
+        if (sg_packet_command_equals(packet, "ping")) {
+            const char* pong = "PONG";
+            size_t pong_len = strlen(pong);
+            if (pong_len < sizeof(reply_payload_local)) {
+                memcpy(reply_payload_local, pong, pong_len);
+                reply_payload_major = 2;
+                reply_payload_ptr = reply_payload_local;
+                reply_payload_len = pong_len;
+            }
+        } else if (sg_packet_command_equals(packet, "bye")) {
+            const char* goodbye = "Goodbye";
+            size_t goodbye_len = strlen(goodbye);
+            if (goodbye_len < sizeof(reply_payload_local)) {
+                memcpy(reply_payload_local, goodbye, goodbye_len);
+                reply_payload_major = 2;
+                reply_payload_ptr = reply_payload_local;
+                reply_payload_len = goodbye_len;
+                close_after_reply = 1;
+            }
+        }
+
         long long reply_type = (packet->packet_type & ~((long long)SG_PACKET_TYPE_REQUEST)) | SG_PACKET_TYPE_REPLY;
-        size_t out_cap = 96 + packet->command_len + packet->payload_len;
+        size_t out_cap = 96 + packet->command_len + reply_payload_len;
         unsigned char* out = (unsigned char*)malloc(out_cap);
         if (out == NULL) {
             return -1;
@@ -2482,7 +2509,7 @@ static int sg_handle_cbor_wire_packet(long long conn_handle, sg_socket_t socket,
         ok = ok && sg_cbor_write_signed_integer(out, out_cap, &idx, packet->request_id);
         ok = ok && sg_cbor_write_signed_integer(out, out_cap, &idx, reply_type);
         ok = ok && sg_cbor_write_bytes_like(out, out_cap, &idx, packet->command_major, packet->command_ptr, packet->command_len);
-        ok = ok && sg_cbor_write_bytes_like(out, out_cap, &idx, packet->payload_major, packet->payload_ptr, packet->payload_len);
+        ok = ok && sg_cbor_write_bytes_like(out, out_cap, &idx, reply_payload_major, reply_payload_ptr, reply_payload_len);
 
         if (!ok || !sg_send_all(socket, out, idx)) {
             free(out);
@@ -2495,9 +2522,12 @@ static int sg_handle_cbor_wire_packet(long long conn_handle, sg_socket_t socket,
             packet->request_id,
             packet->packet_type,
             command_tag,
-            (unsigned)packet->payload_len
+            (unsigned)reply_payload_len
         );
         free(out);
+        if (close_after_reply) {
+            return -2;
+        }
         return 1;
     }
 
@@ -2505,6 +2535,10 @@ static int sg_handle_cbor_wire_packet(long long conn_handle, sg_socket_t socket,
         if (is_setup_notification) {
             sg_logf("INFO", "AUTH", "duplicate setup ignored req=%lld", packet->request_id);
             return 1;
+        }
+        if (sg_packet_command_equals(packet, "bye")) {
+            sg_logf("INFO", "PROTO", "client bye notification req=%lld", packet->request_id);
+            return -2;
         }
         sg_logf(
             "INFO",
