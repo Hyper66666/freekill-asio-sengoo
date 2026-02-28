@@ -142,6 +142,7 @@ $luaLifecycleSmokeScriptPath = ""
 $protobufRpcRegressionScriptPath = ""
 $protobufRpcFixturesPath = ""
 $extensionMatrixScriptPath = ""
+$extensionMatrixWorkspaceScriptPath = ""
 $extensionMatrixTargetsPath = ""
 $extensionMatrixTargetsExamplePath = ""
 $replacementGateScriptPath = ""
@@ -213,6 +214,10 @@ if (Test-Path "scripts/run_protobuf_rpc_regression_native.ps1") {
 if (Test-Path "scripts/run_extension_matrix_native.ps1") {
   $extensionMatrixScriptPath = Join-Path $scriptsDir "run_extension_matrix.ps1"
   Copy-Item "scripts/run_extension_matrix_native.ps1" $extensionMatrixScriptPath -Force
+}
+if (Test-Path "scripts/run_extension_matrix_workspace_native.ps1") {
+  $extensionMatrixWorkspaceScriptPath = Join-Path $scriptsDir "run_extension_matrix_workspace.ps1"
+  Copy-Item "scripts/run_extension_matrix_workspace_native.ps1" $extensionMatrixWorkspaceScriptPath -Force
 }
 if (Test-Path "scripts/runtime_host_replacement_gate_native.ps1") {
   $replacementGateScriptPath = Join-Path $scriptsDir "runtime_host_replacement_gate.ps1"
@@ -344,6 +349,11 @@ $manifest = [ordered]@{
     ""
   } else {
     (Resolve-Path $extensionMatrixScriptPath).Path
+  }
+  extension_matrix_workspace_script_path = if ([string]::IsNullOrWhiteSpace($extensionMatrixWorkspaceScriptPath)) {
+    ""
+  } else {
+    (Resolve-Path $extensionMatrixWorkspaceScriptPath).Path
   }
   extension_matrix_targets_path = if ([string]::IsNullOrWhiteSpace($extensionMatrixTargetsPath)) {
     ""
