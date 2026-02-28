@@ -2674,6 +2674,26 @@ static int sg_extension_sync_refresh_interval_ms(void) {
     return (int)value;
 }
 
+static const char* sg_default_core_entry_path(char* out, size_t out_cap) {
+    if (out == NULL || out_cap == 0) {
+        return "";
+    }
+    const char* env_path = getenv("SENGOO_EXTENSION_CORE_ENTRY");
+    if (env_path != NULL && env_path[0] != '\0') {
+        snprintf(out, out_cap, "%s", env_path);
+        return out;
+    }
+
+    const char* nested = "packages/packages/freekill-core/lua/server/rpc/entry.lua";
+    const char* root = "packages/freekill-core/lua/server/rpc/entry.lua";
+    if (sg_path_exists(nested)) {
+        snprintf(out, out_cap, "%s", nested);
+    } else {
+        snprintf(out, out_cap, "%s", root);
+    }
+    return out;
+}
+
 static const char* sg_extension_bootstrap_lua_exe(void) {
     const char* raw = getenv("SENGOO_LUA_EXE");
     if (raw == NULL || raw[0] == '\0') {
@@ -3091,7 +3111,43 @@ static int sg_bootstrap_extension(const char* name, const char* entry_path, cons
         sizeof(lua_script),
         "local entry = [=[%s]=]\n"
         "local ext_name = [=[%s]=]\n"
-        "local ok, mod = pcall(dofile, entry)\n"
+        "local function _sg_norm(p) return (string.gsub(p, '\\\\', '/')) end\n"
+        "local function _sg_is_abs(p) return (string.match(p, '^%%a:[/\\\\]') ~= nil) or string.sub(p, 1, 1) == '/' end\n"
+        "local function _sg_parent(p)\n"
+        "  local n = _sg_norm(p)\n"
+        "  local parent = string.match(n, '^(.*)/[^/]+$')\n"
+        "  if parent == nil or parent == '' then return '.' end\n"
+        "  return parent\n"
+        "end\n"
+        "local function _sg_root(p)\n"
+        "  local n = _sg_norm(p)\n"
+        "  local root = string.gsub(n, '/lua/server/rpc/entry%%.lua$', '')\n"
+        "  if root ~= n then return root end\n"
+        "  root = string.gsub(n, '/lua/init%%.lua$', '')\n"
+        "  if root ~= n then return root end\n"
+        "  return _sg_parent(n)\n"
+        "end\n"
+        "local package_root = _sg_root(entry)\n"
+        "local function _sg_join(root, rel)\n"
+        "  if string.sub(root, -1) == '/' then return root .. rel end\n"
+        "  return root .. '/' .. rel\n"
+        "end\n"
+        "local _orig_dofile = dofile\n"
+        "dofile = function(path)\n"
+        "  if type(path) == 'string' and path ~= '' and not _sg_is_abs(path) then\n"
+        "    return _orig_dofile(_sg_join(package_root, path))\n"
+        "  end\n"
+        "  return _orig_dofile(path)\n"
+        "end\n"
+        "package.path = package.path .. ';'\n"
+        "  .. _sg_join(package_root, '?.lua') .. ';'\n"
+        "  .. _sg_join(package_root, '?/init.lua') .. ';'\n"
+        "  .. _sg_join(package_root, 'lua/lib/?.lua') .. ';'\n"
+        "  .. _sg_join(package_root, 'lua/?.lua') .. ';'\n"
+        "  .. _sg_join(package_root, 'lua/?/init.lua')\n"
+        "local chunk, load_err = loadfile(entry)\n"
+        "if type(chunk) ~= 'function' then io.stderr:write(tostring(load_err)); os.exit(21) end\n"
+        "local ok, mod = pcall(chunk, 'sengoo_bootstrap')\n"
         "if not ok then io.stderr:write(tostring(mod)); os.exit(21) end\n"
         "local init_fn = nil\n"
         "if type(mod) == 'table' then init_fn = mod.on_server_start or mod.bootstrap or mod.init end\n"
@@ -3185,7 +3241,43 @@ static int sg_run_extension_hook_once(
         "local entry = [=[%s]=]\n"
         "local ext_name = [=[%s]=]\n"
         "local hook_name = [=[%s]=]\n"
-        "local ok, mod = pcall(dofile, entry)\n"
+        "local function _sg_norm(p) return (string.gsub(p, '\\\\', '/')) end\n"
+        "local function _sg_is_abs(p) return (string.match(p, '^%%a:[/\\\\]') ~= nil) or string.sub(p, 1, 1) == '/' end\n"
+        "local function _sg_parent(p)\n"
+        "  local n = _sg_norm(p)\n"
+        "  local parent = string.match(n, '^(.*)/[^/]+$')\n"
+        "  if parent == nil or parent == '' then return '.' end\n"
+        "  return parent\n"
+        "end\n"
+        "local function _sg_root(p)\n"
+        "  local n = _sg_norm(p)\n"
+        "  local root = string.gsub(n, '/lua/server/rpc/entry%%.lua$', '')\n"
+        "  if root ~= n then return root end\n"
+        "  root = string.gsub(n, '/lua/init%%.lua$', '')\n"
+        "  if root ~= n then return root end\n"
+        "  return _sg_parent(n)\n"
+        "end\n"
+        "local package_root = _sg_root(entry)\n"
+        "local function _sg_join(root, rel)\n"
+        "  if string.sub(root, -1) == '/' then return root .. rel end\n"
+        "  return root .. '/' .. rel\n"
+        "end\n"
+        "local _orig_dofile = dofile\n"
+        "dofile = function(path)\n"
+        "  if type(path) == 'string' and path ~= '' and not _sg_is_abs(path) then\n"
+        "    return _orig_dofile(_sg_join(package_root, path))\n"
+        "  end\n"
+        "  return _orig_dofile(path)\n"
+        "end\n"
+        "package.path = package.path .. ';'\n"
+        "  .. _sg_join(package_root, '?.lua') .. ';'\n"
+        "  .. _sg_join(package_root, '?/init.lua') .. ';'\n"
+        "  .. _sg_join(package_root, 'lua/lib/?.lua') .. ';'\n"
+        "  .. _sg_join(package_root, 'lua/?.lua') .. ';'\n"
+        "  .. _sg_join(package_root, 'lua/?/init.lua')\n"
+        "local chunk, load_err = loadfile(entry)\n"
+        "if type(chunk) ~= 'function' then io.stderr:write(tostring(load_err)); os.exit(31) end\n"
+        "local ok, mod = pcall(chunk, 'sengoo_hook')\n"
         "if not ok then io.stderr:write(tostring(mod)); os.exit(31) end\n"
         "local hook_fn = nil\n"
         "if type(mod) == 'table' then hook_fn = mod[hook_name] end\n"
@@ -3322,10 +3414,8 @@ static void sg_sync_extension_bootstrap(const char* registry_json) {
         (void)sg_extract_json_string_field(obj_begin, obj_end + 1, "hash", hash, sizeof(hash));
 
         if (has_name && entry[0] == '\0' && strcmp(name, "freekill-core") == 0) {
-            const char* core_entry = getenv("SENGOO_EXTENSION_CORE_ENTRY");
-            if (core_entry == NULL || core_entry[0] == '\0') {
-                core_entry = "packages/freekill-core/lua/server/rpc/entry.lua";
-            }
+            char core_entry_buf[SG_EXTENSION_ENTRY_MAX];
+            const char* core_entry = sg_default_core_entry_path(core_entry_buf, sizeof(core_entry_buf));
             snprintf(entry, sizeof(entry), "%s", core_entry);
         }
 
@@ -3394,10 +3484,8 @@ static void sg_sync_extension_bootstrap(const char* registry_json) {
 }
 
 static void sg_fill_registry_fallback(char* registry_json, size_t cap) {
-    const char* core_entry_path = getenv("SENGOO_EXTENSION_CORE_ENTRY");
-    if (core_entry_path == NULL || core_entry_path[0] == '\0') {
-        core_entry_path = "packages/freekill-core/lua/server/rpc/entry.lua";
-    }
+    char core_entry_buf[SG_EXTENSION_ENTRY_MAX];
+    const char* core_entry_path = sg_default_core_entry_path(core_entry_buf, sizeof(core_entry_buf));
     if (sg_path_exists(core_entry_path)) {
         snprintf(registry_json, cap, "%s", SG_DEFAULT_EXTENSION_REGISTRY_JSON);
         sg_logf("INFO", "EXT", "extension registry fallback=freekill-core source=%s", core_entry_path);

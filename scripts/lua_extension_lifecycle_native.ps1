@@ -69,12 +69,12 @@ function Ensure-ParentDir([string]$path) {
 
 function Get-PackageRoots([string]$packagesRoot) {
   $roots = New-Object System.Collections.Generic.List[string]
-  if (Test-Path $packagesRoot) {
-    [void]$roots.Add((Resolve-Path $packagesRoot).Path)
-  }
   $nestedRoot = Join-Path $packagesRoot "packages"
   if (Test-Path $nestedRoot) {
     [void]$roots.Add((Resolve-Path $nestedRoot).Path)
+  }
+  if (Test-Path $packagesRoot) {
+    [void]$roots.Add((Resolve-Path $packagesRoot).Path)
   }
   return @($roots | Select-Object -Unique)
 }

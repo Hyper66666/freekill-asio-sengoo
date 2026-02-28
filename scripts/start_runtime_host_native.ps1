@@ -101,11 +101,11 @@ function Assert-PackagePreflight([string]$packagesRootPath, [bool]$requireCore) 
 
 function Build-ExtensionSyncRegistry([string]$packagesRootPath, [string]$outputPath) {
   $candidateRoots = New-Object System.Collections.Generic.List[string]
-  [void]$candidateRoots.Add($packagesRootPath)
   $nestedRoot = Join-Path $packagesRootPath "packages"
   if (Test-Path $nestedRoot) {
     [void]$candidateRoots.Add($nestedRoot)
   }
+  [void]$candidateRoots.Add($packagesRootPath)
 
   $seen = @{}
   $records = New-Object System.Collections.Generic.List[object]
@@ -271,7 +271,10 @@ if ($null -ne $extensionSyncRegistry) {
 
 $originalExtensionRegistryEnv = [string]$env:SENGOO_EXTENSION_REGISTRY
 $originalCoreEntryEnv = [string]$env:SENGOO_EXTENSION_CORE_ENTRY
-$resolvedCoreEntryPath = Join-Path $resolvedPackagesRoot "freekill-core/lua/server/rpc/entry.lua"
+$resolvedCoreEntryPath = Join-Path $resolvedPackagesRoot "packages/freekill-core/lua/server/rpc/entry.lua"
+if (-not (Test-Path $resolvedCoreEntryPath)) {
+  $resolvedCoreEntryPath = Join-Path $resolvedPackagesRoot "freekill-core/lua/server/rpc/entry.lua"
+}
 if ($null -ne $extensionSyncRegistry) {
   $env:SENGOO_EXTENSION_REGISTRY = [string]$extensionSyncRegistry.registry_path
 }

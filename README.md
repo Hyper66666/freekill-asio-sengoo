@@ -100,7 +100,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_runtime_host_n
 
 说明：
 - 通过 `scripts/start_runtime_host_native.ps1` 启动时，会自动扫描扩展并生成同步注册表（默认输出 `.tmp/runtime_host/extension_sync.registry.json`）。
-- 扫描根目录包含 `packages/` 与 `packages/packages/`（后者用于兼容你现在的嵌套扩展布局）。
+- 扫描根目录包含 `packages/` 与 `packages/packages/`，并优先使用 `packages/packages/`（兼容你现在的嵌套扩展布局与原仓库扩展组织方式）。
 - 发现规则（按优先级）：`lua/server/rpc/entry.lua` -> `init.lua` -> `lua/init.lua`，任一存在即纳入同步列表。
 - 这允许直接同步多数原仓库包结构（如 `standard`、`maneuvering`、`standard_cards` 这类 `init.lua` 包）。
 - 自动将生成的注册表路径注入 `SENGOO_EXTENSION_REGISTRY` 环境变量给 native runtime。
@@ -108,6 +108,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_runtime_host_n
 - 自动去除 UTF-8 BOM，避免客户端解析异常。
 - 当注册表为空/缺失时，若存在 `packages/freekill-core/lua/server/rpc/entry.lua`，会回退同步 `freekill-core` 基线扩展信息。
 - native runtime 会按注册表尝试执行扩展引导钩子（优先调用 `on_server_start`，其次 `bootstrap` / `init`），用于把原生 Lua 扩展接入服务启动链。
+- 对 `entry.lua` 类型入口会以 `loadfile(..., bootstrap-arg)` 方式加载，避免触发 `if not ... then mainLoop()` 造成启动阻塞。
 - runtime 常驻期间会按 `SENGOO_EXTENSION_REFRESH_MS`（默认 `3000ms`）周期刷新扩展注册表并触发热更同步（不依赖新客户端连接）。
 - 服务停机时会对已加载扩展尝试触发 `on_server_stop` 钩子（若扩展未定义该函数则跳过）。
 - 可通过环境变量 `SENGOO_EXTENSION_BOOTSTRAP=0` 关闭该行为；Lua 解释器路径可用 `SENGOO_LUA_EXE` 指定（默认 `lua5.4`）。

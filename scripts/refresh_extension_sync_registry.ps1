@@ -45,11 +45,11 @@ function Resolve-ExtensionEntry([string]$packageDir) {
 
 function Build-ExtensionRegistryRecords([string]$packagesRootPath) {
   $candidateRoots = New-Object System.Collections.Generic.List[string]
-  [void]$candidateRoots.Add($packagesRootPath)
   $nestedRoot = Join-Path $packagesRootPath "packages"
   if (Test-Path $nestedRoot) {
     [void]$candidateRoots.Add($nestedRoot)
   }
+  [void]$candidateRoots.Add($packagesRootPath)
 
   $seen = @{}
   $resolvedRoots = New-Object System.Collections.Generic.List[string]
